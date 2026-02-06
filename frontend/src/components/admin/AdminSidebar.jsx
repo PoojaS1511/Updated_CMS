@@ -242,11 +242,12 @@ const AdminSidebar = () => {
       hasChildren: true,
       children: [
         { 
-          name: 'Courses',
+          name: 'Courses Management',
           path: 'courses',
           icon: BookOpenIcon,
           color: 'text-green-600',
-          bgColor: 'bg-green-50'
+          bgColor: 'bg-green-50',
+          fullPath: '/admin/academics/courses'
         },
         { 
           name: 'Subjects',

@@ -90,6 +90,32 @@ class ApiService {
   }
 
   // ====================================
+  // Course Methods
+  // ====================================
+  static async getCourses(filters = {}) {
+    return SupabaseService.getCourses(filters);
+  }
+
+  static async updateCourse(id, updates) {
+    return SupabaseService.updateCourse(id, updates);
+  }
+
+  static async deleteCourse(id) {
+    return SupabaseService.deleteCourse(id);
+  }
+
+  static async createCourse(courseData) {
+    return SupabaseService.createCourse(courseData);
+  }
+
+  // ====================================
+  // Department Methods
+  // ====================================
+  static async getAllDepartments(filters = {}) {
+    return SupabaseService.getAllDepartments(filters);
+  }
+
+  // ====================================
   // Student Methods
   // ====================================
   static async getStudents(filters = {}) {
@@ -820,6 +846,93 @@ class ApiService {
   static async request(endpoint, options = {}) {
     console.warn(`Direct API call to ${endpoint} not implemented. Using Supabase methods directly.`);
     throw new Error('API endpoint not implemented. Use Supabase methods directly.');
+  }
+
+  // ====================================
+  // Internal Marks Methods
+  // ====================================
+  static async saveInternalMarks(marksData) {
+    try {
+      if (!Array.isArray(marksData) || marksData.length === 0) {
+        throw new Error('No marks data provided');
+      }
+
+      // Get current session
+      const { data: { session } } = await supabase.auth.getSession();
+      if (!session) {
+        throw new Error('No active session. Please log in again.');
+      }
+
+      // Get current timestamp for all operations
+      const currentTimestamp = new Date().toISOString();
+
+      // Process each mark record
+      const results = await Promise.all(marksData.map(async (mark) => {
+        // Check if a record with these constraints already exists
+        const { data: existingMark, error: fetchError } = await supabase
+          .from('internal_marks')
+          .select('id, entered_at')
+          .eq('student_id', mark.student_id)
+          .eq('faculty_subject_assignment_id', mark.faculty_subject_assignment_id)
+          .eq('assessment_type', mark.assessment_type)
+          .maybeSingle();
+
+        if (fetchError) throw fetchError;
+
+        if (existingMark) {
+          // Update existing record
+          const updateData = {
+            marks_obtained: mark.marks_obtained,
+            max_marks: mark.max_marks,
+            remarks: mark.remarks,
+            // Use entered_at for existing records to maintain the original timestamp
+            entered_at: existingMark.entered_at || currentTimestamp
+          };
+
+          const { data, error: updateError } = await supabase
+            .from('internal_marks')
+            .update(updateData)
+            .eq('id', existingMark.id)
+            .select();
+
+          if (updateError) throw updateError;
+          return { data, isNew: false };
+        } else {
+          // Prepare data for new record
+          const newRecord = {
+            ...mark,
+            entered_at: currentTimestamp,
+            entered_by_faculty_id: session.user.id
+          };
+
+          // Insert new record
+          const { data, error: insertError } = await supabase
+            .from('internal_marks')
+            .insert(newRecord)
+            .select();
+
+          if (insertError) throw insertError;
+          return { data, isNew: true };
+        }
+      }));
+
+      const savedCount = results.length;
+      const newCount = results.filter(r => r.isNew).length;
+      const updatedCount = savedCount - newCount;
+
+      return {
+        success: true,
+        message: `Successfully processed ${savedCount} records (${newCount} new, ${updatedCount} updated)`,
+        data: results.map(r => r.data[0])
+      };
+    } catch (error) {
+      console.error('Error in saveInternalMarks:', error);
+      return {
+        success: false,
+        message: error.message || 'Failed to save internal marks',
+        error: error
+      };
+    }
   }
 }
 

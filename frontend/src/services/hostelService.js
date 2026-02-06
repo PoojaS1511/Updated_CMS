@@ -104,6 +104,73 @@ const HostelService = {
       console.error('Error initializing weekly menu:', error);
       throw error;
     }
+  },
+
+  // Create a new mess status
+  async createMessStatus(statusData) {
+    try {
+      const { data, error } = await supabase
+        .from('mess_status')
+        .insert([statusData])
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error creating mess status:', error);
+      throw error;
+    }
+  },
+
+  // Update an existing mess status
+  async updateMessStatus(id, updates) {
+    try {
+      const { data, error } = await supabase
+        .from('mess_status')
+        .update(updates)
+        .eq('id', id)
+        .select()
+        .single();
+
+      if (error) throw error;
+      return data;
+    } catch (error) {
+      console.error('Error updating mess status:', error);
+      throw error;
+    }
+  },
+
+  // Delete a mess status
+  async deleteMessStatus(id) {
+    try {
+      const { error } = await supabase
+        .from('mess_status')
+        .delete()
+        .eq('id', id);
+
+      if (error) throw error;
+      return true;
+    } catch (error) {
+      console.error('Error deleting mess status:', error);
+      throw error;
+    }
+  },
+
+  // Get all mess statuses
+  async getMessStatuses() {
+    try {
+      const { data, error } = await supabase
+        .from('mess_status')
+        .select('*')
+        .order('updated_at', { ascending: false });
+
+      if (error) throw error;
+      return data || [];
+    } catch (error) {
+      console.error('Error fetching mess statuses:', error);
+      throw error;
+    }
   }
 };
 

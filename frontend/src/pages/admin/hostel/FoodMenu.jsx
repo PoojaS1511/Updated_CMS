@@ -181,7 +181,7 @@ const FoodMenu = () => {
                     <textarea
                       name={meal}
                       value={form[meal] || ''}
-                      onChange={(e) => form[meal] = e.target.value}
+                      onChange={handleInputChange}
                       className="w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-blue-500 focus:border-blue-500"
                       rows={2}
                       required

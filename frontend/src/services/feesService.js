@@ -204,25 +204,23 @@ export const feesService = {
         throw new Error('Invalid student ID format. Must be a valid UUID.');
       }
 
-      // If fee_structure_id is a number, convert it to a string and pad with zeros to match UUID format
-      if (typeof paymentData.fee_structure_id === 'number') {
-        console.warn('[FeesService] Numeric fee_structure_id detected. Converting to UUID format.');
-        // Convert number to string and pad with leading zeros to make it 32 characters long
-        const paddedId = paymentData.fee_structure_id.toString().padStart(32, '0');
-        // Format as UUID: 8-4-4-4-12
-        paymentData.fee_structure_id = [
-          paddedId.substring(0, 8),
-          paddedId.substring(8, 12),
-          paddedId.substring(12, 16),
-          paddedId.substring(16, 20),
-          paddedId.substring(20, 32)
-        ].join('-');
-        console.log(`[FeesService] Converted fee_structure_id to UUID format: ${paymentData.fee_structure_id}`);
-      }
-
-      // After conversion, validate the format
-      if (!uuidRegex.test(paymentData.fee_structure_id)) {
-        throw new Error('Invalid fee structure ID format. Must be a valid UUID.');
+      // Handle fee_structure_id - keep numbers as is, validate UUID format if string with hyphens
+      if (typeof paymentData.fee_structure_id === 'number' || 
+          (typeof paymentData.fee_structure_id === 'string' && /^\d+$/.test(paymentData.fee_structure_id))) {
+        
+        // Convert to number if it's a string
+        paymentData.fee_structure_id = Number(paymentData.fee_structure_id);
+        console.log('[FeesService] Using numeric fee_structure_id:', paymentData.fee_structure_id);
+        
+      } else if (typeof paymentData.fee_structure_id === 'string' && paymentData.fee_structure_id.includes('-')) {
+        // If it's a string with hyphens, validate it as a proper UUID
+        if (!uuidRegex.test(paymentData.fee_structure_id)) {
+          throw new Error('Invalid fee structure ID format. Must be a valid UUID or numeric ID.');
+        }
+        // If it's a valid UUID, keep it as is
+        console.log('[FeesService] Using UUID fee_structure_id:', paymentData.fee_structure_id);
+      } else {
+        throw new Error('Invalid fee structure ID format. Must be a number or valid UUID.');
       }
 
       // Prepare the payment data for the API
@@ -230,37 +228,39 @@ export const feesService = {
         student_id: paymentData.student_id,
         fee_structure_id: paymentData.fee_structure_id,
         amount: parseFloat(paymentData.amount),
-        payment_date: paymentData.payment_date || new Date().toISOString(),
-        payment_method: paymentData.payment_method || 'cash',
+        payment_date: paymentData.payment_date ? paymentData.payment_date.split('T')[0] : new Date().toISOString().split('T')[0],
+        payment_mode: paymentData.payment_method || 'cash',
         transaction_id: paymentData.transaction_id || `TXN-${Date.now()}`,
         fee_type: paymentData.fee_type || 'Tuition',
         academic_year: paymentData.academic_year || new Date().getFullYear().toString(),
-        semester: paymentData.semester || '1',
+        semester: paymentData.semester ? parseInt(paymentData.semester, 10) : 1,
         status: paymentData.status || 'paid',
-        notes: paymentData.notes || '',
+        due_date: paymentData.due_date || null,
+        late_fee: paymentData.late_fee || 0
       };
 
-      console.log('[FeesService] Submitting payment:', paymentRecord);
+      console.log('[FeesService] Submitting payment:', JSON.stringify(paymentRecord, null, 2));
       
-      // Use the API endpoint instead of direct Supabase call
-      const response = await fetch('/api/fee-payments', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${await supabase.auth.session()?.access_token}`
-        },
-        body: JSON.stringify(paymentRecord)
-      });
+      // Use direct Supabase call to insert payment record
+      const { data, error } = await supabase
+        .from('fee_payments')
+        .insert([paymentRecord])
+        .select()
+        .single();
 
-      const responseData = await response.json();
-
-      if (!response.ok) {
-        console.error('[FeesService] API Error:', responseData);
-        throw new Error(responseData.error || 'Failed to record payment');
+      if (error) {
+        console.error('[FeesService] Database Error Details:', {
+          message: error.message,
+          code: error.code,
+          details: error.details,
+          hint: error.hint,
+          error: error
+        });
+        throw error;
       }
-
-      console.log('[FeesService] Payment recorded successfully:', responseData);
-      return responseData;
+      
+      console.log('[FeesService] Payment recorded successfully:', data);
+      return data;
     } catch (error) {
       console.error('[FeesService] Error in recordPayment:', {
         message: error.message,

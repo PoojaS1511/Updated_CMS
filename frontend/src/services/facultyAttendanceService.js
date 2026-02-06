@@ -21,8 +21,24 @@ export const getFacultyAttendance = async (date) => {
 };
 
 // Update or create attendance record
-export const updateFacultyAttendance = async ({ facultyId, date, status, markedBy, remarks = '' }) => {
+export const updateFacultyAttendance = async ({ 
+  facultyId, 
+  date, 
+  status, 
+  markedBy, 
+  markedByAdmin,
+  remarks = '' 
+}) => {
   const dateStr = date.toISOString().split('T')[0];
+  
+  // Prepare update data
+  const updateData = {
+    status,
+    remarks,
+    updated_at: new Date().toISOString(),
+    marked_by: markedBy,
+    marked_by_admin: markedByAdmin || null
+  };
   
   // Check if record exists
   const { data: existingRecord } = await supabase
@@ -36,12 +52,7 @@ export const updateFacultyAttendance = async ({ facultyId, date, status, markedB
     // Update existing record
     const { data, error } = await supabase
       .from('faculty_attendance')
-      .update({
-        status,
-        remarks,
-        updated_at: new Date().toISOString(),
-        marked_by: markedBy
-      })
+      .update(updateData)
       .eq('id', existingRecord.id)
       .select()
       .single();
@@ -57,7 +68,8 @@ export const updateFacultyAttendance = async ({ facultyId, date, status, markedB
         attendance_date: dateStr,
         status,
         remarks,
-        marked_by: markedBy
+        marked_by: markedBy,
+        marked_by_admin: markedByAdmin || null
       }])
       .select()
       .single();
@@ -68,7 +80,7 @@ export const updateFacultyAttendance = async ({ facultyId, date, status, markedB
 };
 
 // Batch update attendance
-export const batchUpdateAttendance = async (attendanceData, markedBy) => {
+export const batchUpdateAttendance = async (attendanceData, { markedBy, markedByAdmin }) => {
   const operations = attendanceData.map(record => {
     const dateStr = new Date(record.attendance_date).toISOString().split('T')[0];
     
@@ -78,15 +90,20 @@ export const batchUpdateAttendance = async (attendanceData, markedBy) => {
         ...record,
         attendance_date: dateStr,
         marked_by: markedBy,
+        marked_by_admin: markedByAdmin,
         updated_at: new Date().toISOString()
+      }, {
+        onConflict: 'faculty_id,attendance_date',
+        returning: 'minimal'
       });
   });
   
   const results = await Promise.all(operations);
-  const hasError = results.some(result => result.error);
+  const errors = results.filter(result => result.error);
   
-  if (hasError) {
-    throw new Error('Some attendance records could not be saved');
+  if (errors.length > 0) {
+    console.error('Errors in batch update:', errors);
+    throw new Error(`Failed to save ${errors.length} attendance records`);
   }
   
   return results.map(result => result.data);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { supabase } from '../../lib/supabase';
 import {
   Box,
   Button,
@@ -29,6 +30,7 @@ import { feesService } from '../../services/feesService';
 const NewFeeForm = () => {
   const navigate = useNavigate();
   const [loading, setLoading] = useState(false);
+  const [loadingFeeStructures, setLoadingFeeStructures] = useState(false);
   const [error, setError] = useState(null);
   const [students, setStudents] = useState([]);
   const [feeStructures, setFeeStructures] = useState([]);
@@ -43,64 +45,70 @@ const NewFeeForm = () => {
     notes: ''
   });
   
-  // Update form data when fee structure changes
+  // Handle fee structure selection
   useEffect(() => {
     if (formData.feeStructureId) {
       const selectedFee = feeStructures.find(fee => fee.id === formData.feeStructureId);
       if (selectedFee) {
         setFormData(prev => ({
           ...prev,
-          amount: (selectedFee.amount || '').toString(),
-          academicYear: selectedFee.academicYear || prev.academicYear,
+          amount: selectedFee.amount ? selectedFee.amount.toString() : '',
+          academicYear: selectedFee.academicYear || new Date().getFullYear().toString(),
           feeType: selectedFee.feeType
         }));
       }
     }
   }, [formData.feeStructureId, feeStructures]);
 
-  // Fetch students and fee structures
+  // Fetch students on component mount
   useEffect(() => {
-    const fetchData = async () => {
+    const fetchStudents = async () => {
       try {
         setLoading(true);
-        
-        // Fetch students using the feesService
         const studentsData = await feesService.getStudents();
-        
-        // Get all fee structures with their actual IDs
-        const allFees = await feesService.getAllFees();
-        // Create a map of unique fee structures with their actual IDs
-        const uniqueFeeStructures = [];
-        const seen = new Set();
-        
-        allFees.forEach(fee => {
-          if (fee.id && fee.feeType && fee.academicYear) {
-            const key = `${fee.feeType}-${fee.academicYear}`;
-            if (!seen.has(key)) {
-              seen.add(key);
-              uniqueFeeStructures.push({
-                id: fee.id, // Use the actual UUID from the database
-                name: `${fee.feeType} (${fee.academicYear})`,
-                feeType: fee.feeType,
-                academicYear: fee.academicYear,
-                amount: fee.amount // Include the amount for pre-filling
-              });
-            }
-          }
-        });
-        
         setStudents(studentsData || []);
-        setFeeStructures(uniqueFeeStructures);
       } catch (err) {
-        console.error('Error fetching data:', err);
-        setError('Failed to load required data');
+        console.error('Error fetching students:', err);
+        setError('Failed to load students');
       } finally {
         setLoading(false);
       }
     };
 
-    fetchData();
+    fetchStudents();
   }, []);
+
+  // Fetch fee structures when dropdown is opened
+  const handleFeeStructureClick = async () => {
+    if (feeStructures.length > 0 || loadingFeeStructures) return; // Don't fetch if already loaded or currently loading
+
+    try {
+      setLoadingFeeStructures(true);
+      const { data, error } = await supabase
+        .from('fee_structures')
+        .select('*')
+        .order('academic_year', { ascending: false });
+
+      if (error) throw error;
+
+      const formattedFeeStructures = (data || []).map(fee => ({
+        id: fee.id,
+        name: `${fee.name || 'Unnamed Fee'} (${fee.academic_year || 'N/A'})`,
+        amount: fee.amount,
+        academicYear: fee.academic_year,
+        feeType: fee.fee_type,
+        departmentId: fee.department_id,
+        courseId: fee.course_id
+      }));
+
+      setFeeStructures(formattedFeeStructures);
+    } catch (err) {
+      console.error('Error fetching fee structures:', err);
+      setError('Failed to load fee structures. Please try again.');
+    } finally {
+      setLoadingFeeStructures(false);
+    }
+  };
 
   const handleChange = (e) => {
     const { name, value } = e.target;
@@ -253,14 +261,22 @@ const NewFeeForm = () => {
                       name="feeStructureId"
                       value={formData.feeStructureId}
                       onChange={handleChange}
+                      onOpen={handleFeeStructureClick}
                       label="Fee Structure"
                       required
+                      disabled={loadingFeeStructures}
                     >
-                      {feeStructures.map((fee) => (
-                        <MenuItem key={fee.id} value={fee.id}>
-                          {fee.name}
-                        </MenuItem>
-                      ))}
+                      {loadingFeeStructures ? (
+                        <MenuItem disabled>Loading fee structures...</MenuItem>
+                      ) : feeStructures.length === 0 ? (
+                        <MenuItem disabled>No fee structures found</MenuItem>
+                      ) : (
+                        feeStructures.map((fee) => (
+                          <MenuItem key={fee.id} value={fee.id}>
+                            {fee.name} - ₹{fee.amount?.toFixed(2) || '0.00'}
+                          </MenuItem>
+                        ))
+                      )}
                     </Select>
                   </FormControl>
                 </Grid>

@@ -96,14 +96,22 @@ const FacultyAttendance = () => {
 
   const handleStatusChange = async (facultyId, status) => {
     try {
-      // Get current user ID from Supabase
+      // Get current user and their role from Supabase
       const { data: { user } } = await supabase.auth.getUser();
+      const { data: userData } = await supabase
+        .from('faculties')
+        .select('id, role')
+        .eq('auth_id', user.id)
+        .single();
+
+      const isAdmin = userData?.role === 'admin' || user?.user_metadata?.role === 'admin';
       
       await updateFacultyAttendance({
         facultyId,
         date,
         status,
-        markedBy: user?.id || null
+        markedBy: isAdmin ? null : userData?.id,  // faculty marks → their faculties.id
+        markedByAdmin: isAdmin ? user?.id : null  // admin marks → auth.users id
       });
       
       // Update local state
@@ -111,13 +119,22 @@ const FacultyAttendance = () => {
         const existing = prev.find(a => a.faculty_id === facultyId);
         if (existing) {
           return prev.map(a => 
-            a.faculty_id === facultyId ? { ...a, status } : a
+            a.faculty_id === facultyId 
+              ? { 
+                  ...a, 
+                  status,
+                  marked_by: isAdmin ? null : userData?.id,
+                  marked_by_admin: isAdmin ? user?.id : null
+                } 
+              : a
           );
         } else {
           return [...prev, { 
             faculty_id: facultyId, 
             status, 
-            attendance_date: date.toISOString().split('T')[0]
+            attendance_date: date.toISOString().split('T')[0],
+            marked_by: isAdmin ? null : userData?.id,
+            marked_by_admin: isAdmin ? user?.id : null
           }];
         }
       });
@@ -131,8 +148,15 @@ const FacultyAttendance = () => {
 
   const onSubmit = async () => {
     try {
-      // Get current user ID from Supabase
+      // Get current user and their role from Supabase
       const { data: { user } } = await supabase.auth.getUser();
+      const { data: userData } = await supabase
+        .from('faculties')
+        .select('id, role')
+        .eq('auth_id', user.id)
+        .single();
+
+      const isAdmin = userData?.role === 'admin' || user?.user_metadata?.role === 'admin';
       
       // Prepare attendance data for batch update
       const attendanceData = faculty.map(facultyMember => {
@@ -141,11 +165,16 @@ const FacultyAttendance = () => {
           faculty_id: facultyMember.id,
           attendance_date: date.toISOString().split('T')[0],
           status: record?.status || 'absent',
-          marked_by: user?.id || null
+          marked_by: isAdmin ? null : userData?.id,  // faculty marks → their faculties.id
+          marked_by_admin: isAdmin ? user?.id : null  // admin marks → auth.users id
         };
       });
       
-      await batchUpdateAttendance(attendanceData, user?.id || null);
+      await batchUpdateAttendance(attendanceData, {
+        markedBy: isAdmin ? null : userData?.id,
+        markedByAdmin: isAdmin ? user?.id : null
+      });
+      
       showSnackbar('Attendance saved successfully');
       fetchData(); // Refresh data
     } catch (error) {

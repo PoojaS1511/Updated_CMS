@@ -1,27 +1,51 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
-import { format } from 'date-fns';
+import { format, parseISO } from 'date-fns';
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper,
+  Button,
+  CircularProgress,
+  Typography,
+  TextField,
+  Dialog,
+  DialogTitle,
+  DialogContent,
+  DialogActions,
+  TablePagination,
+  Box,
+  MenuItem,
+  Select,
+  FormControl,
+  InputLabel
+} from '@mui/material';
 
 const ITEMS_PER_PAGE = 10;
 
 const AttendanceManagement = () => {
   const [attendance, setAttendance] = useState([]);
-  const [students, setStudents] = useState([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
-  const [currentPage, setCurrentPage] = useState(1);
+  const [currentPage, setCurrentPage] = useState(0);
   const [totalRecords, setTotalRecords] = useState(0);
   const [showMarkAttendanceModal, setShowMarkAttendanceModal] = useState(false);
-  const [selectedStudents, setSelectedStudents] = useState({});
-  const [studentMarks, setStudentMarks] = useState({});
-  const [showMarks, setShowMarks] = useState(false);
+  const [selectedDate, setSelectedDate] = useState('');
+  const [attendanceStatus, setAttendanceStatus] = useState('all');
+  const [subjects, setSubjects] = useState([]);
+  const [faculty, setFaculty] = useState([]);
+  const [selectedSubject, setSelectedSubject] = useState('');
+  const [selectedFaculty, setSelectedFaculty] = useState('');
   const [formData, setFormData] = useState({
     date: new Date().toISOString().split('T')[0],
     period: '1',
     subject: '',
     status: 'present',
-    maxMarks: '10',
-    examType: 'class_test' // Default exam type
+    examType: 'class_test'
   });
   const [isSubmitting, setIsSubmitting] = useState(false);
 
@@ -30,634 +54,445 @@ const AttendanceManagement = () => {
       setLoading(true);
       setError(null);
 
-      // Build the base query
-      const { data, error: queryError, count } = await supabase
-        .from('attendance')
+      // First, fetch the attendance records with student data
+      let { data: attendanceData, error } = await supabase
+        .from('student_attendance')
         .select(`
-          id,
-          date,
-          status,
-          period,
-          subject,
-          marked_time,
-          marked_by,
-          student_id,
-          students!inner(
+          *,
+          students!student_attendance_student_id_fkey (
             id,
-            name,
-            branch,
-            email
-          )
+            full_name,
+            register_number,
+            roll_no
+          ),
+          subjects:subject_id (*)
         `, { count: 'exact' })
-        .order('date', { ascending: false })
-        .range(
-          (currentPage - 1) * ITEMS_PER_PAGE,
-          currentPage * ITEMS_PER_PAGE - 1
+        .order('attendance_date', { ascending: false });
+
+      if (error) throw error;
+
+      // If no data, set empty array and return
+      if (!attendanceData || attendanceData.length === 0) {
+        setAttendance([]);
+        setTotalRecords(0);
+        return;
+      }
+
+      // Get all unique faculty IDs from the attendance records (filter out null/undefined)
+      const facultyIds = [...new Set(attendanceData
+        .map(record => record.faculty_id)
+        .filter(Boolean)
+      )];
+      
+      let facultyMap = {};
+      
+      // Only fetch faculty data if we have faculty IDs
+      if (facultyIds.length > 0) {
+        const { data: facultyData, error: facultyError } = await supabase
+          .from('faculties')
+          .select('id, full_name, employee_id')
+          .in('id', facultyIds);
+
+        if (facultyError) throw facultyError;
+
+        // Create a map of faculty ID to faculty data for quick lookup
+        facultyData?.forEach(faculty => {
+          facultyMap[faculty.id] = faculty;
+        });
+      }
+
+      // Combine the data and ensure faculty data is properly attached
+      const combinedData = attendanceData.map(record => {
+        // Find the faculty for this record
+        const faculty = record.faculty_id ? facultyMap[record.faculty_id] : null;
+        
+        return {
+          ...record,
+          faculty: faculty || null
+        };
+      });
+
+      // Apply date filter if selected
+      let filteredData = combinedData;
+      if (selectedDate) {
+        filteredData = combinedData.filter(record => 
+          record.attendance_date === selectedDate
         );
-
-      if (queryError) {
-        console.error('Query error:', queryError);
-        throw queryError;
+      }
+      // Apply additional filters
+      if (attendanceStatus !== 'all') {
+        filteredData = filteredData.filter(record => record.status === attendanceStatus);
+      }
+      if (selectedSubject) {
+        filteredData = filteredData.filter(record => record.subject_id === selectedSubject);
+      }
+      if (selectedFaculty) {
+        filteredData = filteredData.filter(record => record.faculty_id === selectedFaculty);
       }
 
-      console.log('Query successful. Records found:', data?.length || 0, 'Total count:', count);
-      
-      if (data && data.length > 0) {
-        console.log('Sample record:', JSON.stringify(data[0], null, 2));
-      }
+      // Apply pagination
+      const startIndex = currentPage * ITEMS_PER_PAGE;
+      const paginatedData = filteredData.slice(startIndex, startIndex + ITEMS_PER_PAGE);
 
-      setAttendance(data || []);
-      setTotalRecords(count || 0);
-      
+      // Update state with paginated data
+      setAttendance(paginatedData);
+      setTotalRecords(filteredData.length);
     } catch (err) {
       console.error('Error in fetchAttendance:', err);
       setError(err.message || 'Failed to fetch attendance data');
     } finally {
       setLoading(false);
     }
-  }, [currentPage]);
+  }, [currentPage, selectedDate, attendanceStatus, selectedSubject, selectedFaculty]);
 
-  // Fetch students for attendance marking
-  const fetchStudents = useCallback(async () => {
+  const fetchSubjects = async () => {
     try {
       const { data, error } = await supabase
-        .from('students')
-        .select('id, name, branch, email')
+        .from('subjects')
+        .select('id, name, code')
         .order('name');
+      
+      if (error) throw error;
+      setSubjects(data || []);
+    } catch (err) {
+      console.error('Error fetching subjects:', err);
+    }
+  };
+
+  const fetchFaculty = async () => {
+    try {
+      const { data, error } = await supabase
+        .from('faculty')
+        .select('id, name, email')
+        .order('name');
+      
+      if (error) throw error;
+      setFaculty(data || []);
+    } catch (err) {
+      console.error('Error fetching faculty:', err);
+    }
+  };
+
+  // Mark attendance for students
+  const markAttendance = async (attendanceId, status) => {
+    try {
+      const { error } = await supabase
+        .from('student_attendance')
+        .update({
+          status,
+          updated_at: new Date().toISOString()
+        })
+        .eq('id', attendanceId);
 
       if (error) throw error;
-
-      // Initialize selected students with all set to present by default
-      const initialSelected = {};
-      data.forEach(student => {
-        initialSelected[student.id] = 'present';
-      });
-      setSelectedStudents(initialSelected);
-      setStudents(data || []);
+      
+      // Refresh the attendance data
+      fetchAttendance();
     } catch (err) {
-      console.error('Error fetching students:', err);
-      setError('Failed to load student list');
+      console.error('Error updating attendance:', err);
+      setError('Failed to update attendance');
     }
-  }, []);
+  };
 
   // Initial fetch and refetch when dependencies change
   useEffect(() => {
     fetchAttendance();
-    fetchStudents();
-  }, [fetchAttendance, fetchStudents]);
+    fetchSubjects();
+    fetchFaculty();
+  }, [fetchAttendance]);
 
-  // Handle form input changes
-  const handleInputChange = (e) => {
-    const { name, value } = e.target;
-    setFormData(prev => ({
-      ...prev,
-      [name]: value
-    }));
+  const resetFilters = () => {
+    setSelectedDate('');
+    setAttendanceStatus('all');
+    setSelectedSubject('');
+    setSelectedFaculty('');
+    setCurrentPage(0);
   };
 
-  // Handle student attendance status change
-  const handleStudentStatusChange = (studentId, status) => {
-    setSelectedStudents(prev => ({
-      ...prev,
-      [studentId]: status
-    }));
-  };
-
-  // Handle marks change for a student
-  const handleMarksChange = (studentId, marks) => {
-    setStudentMarks(prev => ({
-      ...prev,
-      [studentId]: marks
-    }));
-  };
-
-  // Handle form submission
-  const handleSubmitAttendance = async (e) => {
-    e.preventDefault();
+  const handleSubmitAttendance = async (event) => {
+    event.preventDefault();
     if (isSubmitting) return;
-    
+
     try {
       setIsSubmitting(true);
-      const { date, period, subject, maxMarks, examType } = formData;
-      const currentUser = (await supabase.auth.getUser()).data.user;
-      const currentDate = new Date().toISOString();
-      
-      // Prepare attendance records
-      const attendanceRecords = Object.entries(selectedStudents)
-        .filter(([_, status]) => status !== '') // Filter out unselected students
-        .map(([studentId, status]) => ({
-          student_id: studentId,
-          date,
-          period: parseInt(period, 10),
-          subject,
-          status,
-          marked_by: currentUser?.email || 'admin',
-          marked_time: currentDate
-        }));
-
-      // Start a transaction
-      const { data, error: attendanceError } = await supabase.rpc('mark_attendance_with_marks', {
-        attendance_records: attendanceRecords,
-        marks_data: showMarks ? Object.entries(studentMarks)
-          .filter(([studentId, marks]) => marks !== undefined && marks !== '')
-          .map(([studentId, marks]) => ({
-            student_id: studentId,
-            subject,
-            exam_type: examType,
-            marks_obtained: parseFloat(marks) || 0,
-            max_marks: parseFloat(maxMarks) || 10,
-            date: currentDate,
-            marked_by: currentUser?.email || 'admin'
-          })) : []
-      });
-
-      if (attendanceError) throw attendanceError;
-
-      // Refresh attendance data
-      await fetchAttendance();
+      // TODO: implement bulk attendance marking from the modal
       setShowMarkAttendanceModal(false);
-      
-      // Show success message
-      alert(showMarks ? 'Attendance and marks recorded successfully!' : 'Attendance marked successfully!');
+      await fetchAttendance();
     } catch (err) {
-      console.error('Error marking attendance:', err);
-      setError('Failed to mark attendance. Please try again.');
+      console.error('Error submitting attendance:', err);
+      setError(err?.message || 'Failed to save attendance');
     } finally {
       setIsSubmitting(false);
     }
   };
 
-  // Calculate total pages
-  const totalPages = Math.ceil(totalRecords / ITEMS_PER_PAGE);
-
-  // Handle export to CSV
-  const handleExportCSV = () => {
-    const headers = ['Student Name', 'Student ID', 'Branch', 'Date', 'Period', 'Subject', 'Status', 'Marked Time', 'Marked By'];
-    const csvContent = [
-      headers.join(','),
-      ...attendance.map(record => [
-        `"${record.students?.name || 'N/A'}"`,
-        `"${record.students?.student_id || 'N/A'}"`,
-        `"${record.students?.branch || 'N/A'}"`,
-        `"${new Date(record.date).toLocaleDateString()}"`,
-        `"${record.period || 'N/A'}"`,
-        `"${record.subject || 'N/A'}"`,
-        `"${record.status?.toUpperCase() || 'N/A'}"`,
-        `"${record.marked_time ? new Date(record.marked_time).toLocaleString() : 'N/A'}"`,
-        `"${record.marked_by || 'N/A'}"`
-      ].join(','))
-    ].join('\n');
-
-    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.setAttribute('download', `attendance_${format(new Date(), 'yyyyMMdd')}.csv`);
-    document.body.appendChild(link);
-    link.click();
-    document.body.removeChild(link);
-  };
-
-  // Loading state
-  if (loading && attendance.length === 0) {
-    return (
-      <div className="flex items-center justify-center min-h-[400px]">
-        <div className="animate-spin rounded-full h-12 w-12 border-t-2 border-b-2 border-blue-500"></div>
-      </div>
-    );
-  }
-
-  // Error state
-  if (error) {
-    return (
-      <div className="p-6">
-        <div className="bg-red-100 border border-red-400 text-red-700 px-4 py-3 rounded">
-          {error}
-        </div>
-      </div>
-    );
-  }
-
   return (
-    <div className="p-6">
-      <div className="flex flex-col md:flex-row md:items-center md:justify-between mb-6 gap-4">
-        <h1 className="text-2xl font-bold text-gray-800">Attendance Management</h1>
-        <div className="flex flex-wrap gap-2">
-          <button
-            onClick={() => setShowMarkAttendanceModal(true)}
-            className="bg-blue-500 hover:bg-blue-600 text-white px-4 py-2 rounded-md transition-colors text-sm"
-          >
-            Mark Attendance
-          </button>
-          <button
-            onClick={handleExportCSV}
-            className="bg-green-500 hover:bg-green-600 text-white px-4 py-2 rounded-md transition-colors text-sm"
-            disabled={attendance.length === 0}
-          >
-            Export to CSV
-          </button>
-        </div>
-      </div>
+    <Box sx={{ p: 3 }}>
+      <Typography variant="h4" gutterBottom>
+        Attendance Management
+      </Typography>
 
+      {/* Filters */}
+      <Box sx={{ mb: 3, display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+        <TextField
+          label="Date"
+          type="date"
+          value={selectedDate}
+          onChange={(e) => setSelectedDate(e.target.value)}
+          InputLabelProps={{ shrink: true }}
+          size="small"
+        />
+        <FormControl size="small" sx={{ minWidth: 150 }}>
+          <InputLabel>Status</InputLabel>
+          <Select
+            value={attendanceStatus}
+            onChange={(e) => setAttendanceStatus(e.target.value)}
+            label="Status"
+          >
+            <MenuItem value="all">All Statuses</MenuItem>
+            <MenuItem value="present">Present</MenuItem>
+            <MenuItem value="absent">Absent</MenuItem>
+            <MenuItem value="late">Late</MenuItem>
+            <MenuItem value="excused">Excused</MenuItem>
+          </Select>
+        </FormControl>
+        
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel>Subject</InputLabel>
+          <Select
+            value={selectedSubject}
+            onChange={(e) => setSelectedSubject(e.target.value)}
+            label="Subject"
+          >
+            <MenuItem value="">All Subjects</MenuItem>
+            {subjects.map((subject) => (
+              <MenuItem key={subject.id} value={subject.id}>
+                {subject.name} ({subject.code})
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        <FormControl size="small" sx={{ minWidth: 200 }}>
+          <InputLabel>Faculty</InputLabel>
+          <Select
+            value={selectedFaculty}
+            onChange={(e) => setSelectedFaculty(e.target.value)}
+            label="Faculty"
+          >
+            <MenuItem value="">All Faculty</MenuItem>
+            {faculty.map((f) => (
+              <MenuItem key={f.id} value={f.id}>
+                {f.name}
+              </MenuItem>
+            ))}
+          </Select>
+        </FormControl>
+
+        <Button 
+          variant="outlined" 
+          onClick={() => {
+            setSelectedDate(format(new Date(), 'yyyy-MM-dd'));
+            setAttendanceStatus('all');
+            setSelectedSubject('');
+            setSelectedFaculty('');
+          }}
+        >
+          Reset Filters
+        </Button>
+        
+        <Button
+          variant="contained"
+          color="primary"
+          onClick={() => setShowMarkAttendanceModal(true)}
+          sx={{ ml: 'auto' }}
+        >
+          Mark Attendance
+        </Button>
+      </Box>
+
+      {error && (
+        <Typography color="error" sx={{ mb: 2 }}>
+          {error}
+        </Typography>
+      )}
 
       {/* Attendance Table */}
-      <div className="bg-white rounded-lg shadow overflow-hidden">
-        <div className="overflow-x-auto">
-          <table className="min-w-full divide-y divide-gray-200">
-            <thead className="bg-gray-50">
-              <tr>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Branch</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Date</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Period</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Subject</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
-                <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Marked At</th>
-              </tr>
-            </thead>
-            <tbody className="bg-white divide-y divide-gray-200">
-              {loading ? (
-                <tr>
-                  <td colSpan="4" className="px-6 py-8 text-center">
-                    <div className="flex justify-center">
-                      <div className="animate-spin rounded-full h-10 w-10 border-t-2 border-b-2 border-blue-500"></div>
-                    </div>
-                  </td>
-                </tr>
-              ) : attendance.length > 0 ? (
-                attendance.map((record) => (
-                  <tr key={`${record.id}-${record.date}`} className="hover:bg-gray-50">
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <div className="flex items-center">
-                        <div className="flex-shrink-0 h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                          <span className="text-blue-600 font-medium">
-                            {record.students?.name?.charAt(0).toUpperCase() || '?'}
-                          </span>
-                        </div>
-                        <div className="ml-4">
-                          <div className="text-sm font-medium text-gray-900">{record.students?.name || 'N/A'}</div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {record.students?.student_id || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {record.students?.branch || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {new Date(record.date).toLocaleDateString()}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {record.period || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {record.subject || 'N/A'}
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap">
-                      <span className={`px-2 inline-flex text-xs leading-5 font-semibold rounded-full ${
-                        record.status?.toLowerCase() === 'present' 
-                          ? 'bg-green-100 text-green-800' 
-                          : 'bg-red-100 text-red-800'
-                      }`}>
-                        {record.status?.toUpperCase() || 'UNKNOWN'}
-                      </span>
-                    </td>
-                    <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                      {record.marked_time ? new Date(record.marked_time).toLocaleString() : 'N/A'}
-                      {record.marked_by && (
-                        <div className="text-xs text-gray-400">by {record.marked_by}</div>
-                      )}
-                    </td>
-                  </tr>
-                ))
-              ) : (
-                <tr>
-                  <td colSpan="4" className="px-6 py-8 text-center text-gray-500">
-                    No attendance records found
-                  </td>
-                </tr>
-              )}
-            </tbody>
-          </table>
-        </div>
+      <TableContainer component={Paper}>
+        <Table>
+          <TableHead>
+            <TableRow>
+              <TableCell>Student</TableCell>
+              <TableCell>Admission No.</TableCell>
+              <TableCell>Status</TableCell>
+              <TableCell>Subject</TableCell>
+              <TableCell>Faculty</TableCell>
+              <TableCell>Date</TableCell>
+              <TableCell>Actions</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {loading ? (
+              <TableRow>
+                <TableCell colSpan={7} align="center">
+                  <CircularProgress />
+                </TableCell>
+              </TableRow>
+            ) : attendance.length === 0 ? (
+              <TableRow>
+                <TableCell colSpan={7} align="center">
+                  No attendance records found
+                </TableCell>
+              </TableRow>
+            ) : (
+              attendance.map((record) => (
+                <TableRow key={record.id} hover>
+                  <TableCell>{record.students?.full_name || 'N/A'}</TableCell>
+                  <TableCell>
+                    {record.students?.register_number ??
+                      record.students?.roll_no ??
+                      'N/A'}
+                  </TableCell>
+                  <TableCell>
+                    <Box 
+                      sx={{
+                        display: 'inline-block',
+                        color: record.status === 'present' ? 'success.main' : 
+                               record.status === 'absent' ? 'error.main' : 'warning.main',
+                        fontWeight: 'bold',
+                        textTransform: 'capitalize',
+                        px: 1,
+                        borderRadius: 1,
+                        bgcolor: record.status === 'present' ? 'success.50' : 
+                                record.status === 'absent' ? 'error.50' : 'warning.50'
+                      }}
+                    >
+                      {record.status}
+                    </Box>
+                  </TableCell>
+                  <TableCell>{record.subjects?.name || 'N/A'}</TableCell>
+                  <TableCell>{record.faculty?.full_name || 'N/A'}</TableCell>
+                  <TableCell>
+                    {format(parseISO(record.attendance_date), 'MMM dd, yyyy')}
+                  </TableCell>
+                  <TableCell>
+                    <Button
+                      variant="outlined"
+                      size="small"
+                      onClick={() =>
+                        markAttendance(
+                          record.id,
+                          record.status === 'present' ? 'absent' : 'present'
+                        )
+                      }
+                      disabled={isSubmitting}
+                    >
+                      Toggle Status
+                    </Button>
+                  </TableCell>
+                </TableRow>
+              ))
+            )}
+          </TableBody>
+        </Table>
+      </TableContainer>
 
-        {/* Pagination */}
-        {(totalPages > 1 || currentPage > 1) && (
-          <div className="bg-white px-4 py-3 flex items-center justify-between border-t border-gray-200 sm:px-6">
-            <div className="flex-1 flex justify-between sm:hidden">
-              <button
-                onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                disabled={currentPage === 1}
-                className={`relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md ${
-                  currentPage === 1 ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Previous
-              </button>
-              <button
-                onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                disabled={currentPage === totalPages}
-                className={`ml-3 relative inline-flex items-center px-4 py-2 border border-gray-300 text-sm font-medium rounded-md ${
-                  currentPage === totalPages ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white text-gray-700 hover:bg-gray-50'
-                }`}
-              >
-                Next
-              </button>
-            </div>
-            <div className="hidden sm:flex-1 sm:flex sm:items-center sm:justify-between">
-              <div>
-                <p className="text-sm text-gray-700">
-                  Showing <span className="font-medium">{(currentPage - 1) * ITEMS_PER_PAGE + 1}</span> to{' '}
-                  <span className="font-medium">
-                    {Math.min(currentPage * ITEMS_PER_PAGE, totalRecords)}
-                  </span>{' '}
-                  of <span className="font-medium">{totalRecords}</span> results
-                </p>
-              </div>
-              <div>
-                <nav className="relative z-0 inline-flex rounded-md shadow-sm -space-x-px" aria-label="Pagination">
-                  <button
-                    onClick={() => setCurrentPage(1)}
-                    disabled={currentPage === 1}
-                    className={`relative inline-flex items-center px-2 py-2 rounded-l-md border border-gray-300 bg-white text-sm font-medium ${
-                      currentPage === 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-50'
-                    }`}
-                  >
-                    <span className="sr-only">First</span>
-                    &laquo;
-                  </button>
-                  <button
-                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
-                    disabled={currentPage === 1}
-                    className={`relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium ${
-                      currentPage === 1 ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-50'
-                    }`}
-                  >
-                    <span className="sr-only">Previous</span>
-                    &lsaquo;
-                  </button>
-                  
-                  {Array.from({ length: Math.min(5, totalPages) }, (_, i) => {
-                    // Show first page, last page, current page, and pages around current page
-                    let pageNum;
-                    if (totalPages <= 5) {
-                      pageNum = i + 1;
-                    } else if (currentPage <= 3) {
-                      pageNum = i + 1;
-                    } else if (currentPage >= totalPages - 2) {
-                      pageNum = totalPages - 4 + i;
-                    } else {
-                      pageNum = currentPage - 2 + i;
-                    }
-                    
-                    return (
-                      <button
-                        key={pageNum}
-                        onClick={() => setCurrentPage(pageNum)}
-                        className={`relative inline-flex items-center px-4 py-2 border text-sm font-medium ${
-                          currentPage === pageNum 
-                            ? 'z-10 bg-blue-50 border-blue-500 text-blue-600' 
-                            : 'bg-white border-gray-300 text-gray-500 hover:bg-gray-50'
-                        }`}
-                      >
-                        {pageNum}
-                      </button>
-                    );
-                  })}
-                  
-                  <button
-                    onClick={() => setCurrentPage(p => Math.min(totalPages, p + 1))}
-                    disabled={currentPage === totalPages}
-                    className={`relative inline-flex items-center px-2 py-2 border border-gray-300 bg-white text-sm font-medium ${
-                      currentPage === totalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-50'
-                    }`}
-                  >
-                    <span className="sr-only">Next</span>
-                    &rsaquo;
-                  </button>
-                  <button
-                    onClick={() => setCurrentPage(totalPages)}
-                    disabled={currentPage === totalPages}
-                    className={`relative inline-flex items-center px-2 py-2 rounded-r-md border border-gray-300 bg-white text-sm font-medium ${
-                      currentPage === totalPages ? 'text-gray-300 cursor-not-allowed' : 'text-gray-500 hover:bg-gray-50'
-                    }`}
-                  >
-                    <span className="sr-only">Last</span>
-                    &raquo;
-                  </button>
-                </nav>
-              </div>
-            </div>
-          </div>
-        )}
-      </div>
+      {/* Pagination */}
+      <TablePagination
+        rowsPerPageOptions={[ITEMS_PER_PAGE]}
+        component="div"
+        count={totalRecords}
+        rowsPerPage={ITEMS_PER_PAGE}
+        page={currentPage}
+        onPageChange={(e, newPage) => setCurrentPage(newPage)}
+      />
 
       {/* Mark Attendance Modal */}
-      {showMarkAttendanceModal && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
-          <div className="bg-white rounded-lg w-full max-w-4xl max-h-[80vh] flex flex-col">
-            <div className="p-6 border-b">
-              <h2 className="text-xl font-semibold">Mark Attendance</h2>
-            </div>
-            
-            <form onSubmit={handleSubmitAttendance} className="flex-1 overflow-hidden flex flex-col">
-              <div className="p-6 space-y-4 overflow-y-auto flex-1">
-                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-4">
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Date</label>
-                    <input
-                      type="date"
-                      name="date"
-                      value={formData.date}
-                      onChange={handleInputChange}
-                      className="w-full p-2 border rounded-md"
-                      required
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Period</label>
-                    <select
-                      name="period"
-                      value={formData.period}
-                      onChange={handleInputChange}
-                      className="w-full p-2 border rounded-md"
-                      required
-                    >
-                      {[1, 2, 3, 4, 5, 6, 7, 8].map(num => (
-                        <option key={num} value={num}>Period {num}</option>
-                      ))}
-                    </select>
-                  </div>
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Subject</label>
-                    <input
-                      type="text"
-                      name="subject"
-                      value={formData.subject}
-                      onChange={handleInputChange}
-                      className="w-full p-2 border rounded-md"
-                      placeholder="Enter subject name"
-                      required
-                    />
-                  </div>
-                  <div className="flex items-end space-x-2">
-                    <div className="flex-1">
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Record Marks?</label>
-                      <label className="relative inline-flex items-center cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={showMarks}
-                          onChange={() => setShowMarks(!showMarks)}
-                          className="sr-only peer"
-                        />
-                        <div className="w-11 h-6 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-5 after:w-5 after:transition-all peer-checked:bg-blue-600"></div>
-                        <span className="ml-3 text-sm font-medium text-gray-700">
-                          {showMarks ? 'Yes' : 'No'}
-                        </span>
-                      </label>
-                    </div>
-                  </div>
-                  
-                  {showMarks && (
-                    <>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Exam Type</label>
-                        <select
-                          name="examType"
-                          value={formData.examType}
-                          onChange={handleInputChange}
-                          className="w-full p-2 border rounded-md"
-                        >
-                          <option value="class_test">Class Test</option>
-                          <option value="unit_test">Unit Test</option>
-                          <option value="mid_term">Mid Term</option>
-                          <option value="final">Final Exam</option>
-                          <option value="quiz">Quiz</option>
-                        </select>
-                      </div>
-                      <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Max Marks</label>
-                        <input
-                          type="number"
-                          name="maxMarks"
-                          min="1"
-                          step="0.01"
-                          value={formData.maxMarks}
-                          onChange={handleInputChange}
-                          className="w-full p-2 border rounded-md"
-                          placeholder="Enter max marks"
-                        />
-                      </div>
-                    </>
-                  )}
-                  
-                  <div className={showMarks ? 'col-span-2' : ''}>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Default Status</label>
-                    <select
-                      name="status"
-                      value={formData.status}
-                      onChange={handleInputChange}
-                      className="w-full p-2 border rounded-md"
-                    >
-                      <option value="present">Present</option>
-                      <option value="absent">Absent</option>
-                      <option value="late">Late</option>
-                      <option value="excused">Excused</option>
-                    </select>
-                  </div>
-                </div>
-
-                <div className="overflow-x-auto">
-                  <table className="min-w-full divide-y divide-gray-200">
-                    <thead className="bg-gray-50">
-                      <tr>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Student</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">ID</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Branch</th>
-                        <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                          Status{showMarks ? ' & Marks' : ''}
-                        </th>
-                      </tr>
-                    </thead>
-                    <tbody className="bg-white divide-y divide-gray-200">
-                      {students.map(student => (
-                        <tr key={student.id} className="hover:bg-gray-50">
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <div className="flex items-center">
-                              <div className="flex-shrink-0 h-10 w-10 bg-blue-100 rounded-full flex items-center justify-center">
-                                <span className="text-blue-600 font-medium">
-                                  {student.name?.charAt(0).toUpperCase() || '?'}
-                                </span>
-                              </div>
-                              <div className="ml-4">
-                                <div className="text-sm font-medium text-gray-900">{student.name}</div>
-                              </div>
-                            </div>
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {student.student_id || 'N/A'}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                            {student.branch || 'N/A'}
-                          </td>
-                          <td className="px-6 py-4 whitespace-nowrap">
-                            <select
-                              value={selectedStudents[student.id] || 'present'}
-                              onChange={(e) => handleStudentStatusChange(student.id, e.target.value)}
-                              className="border rounded p-1 text-sm w-full mb-1"
-                            >
-                              <option value="present">Present</option>
-                              <option value="absent">Absent</option>
-                              <option value="late">Late</option>
-                              <option value="excused">Excused</option>
-                            </select>
-                            {showMarks && (
-                              <div className="mt-2">
-                                <input
-                                  type="number"
-                                  min="0"
-                                  step="0.01"
-                                  max={formData.maxMarks || 10}
-                                  value={studentMarks[student.id] || ''}
-                                  onChange={(e) => handleMarksChange(student.id, e.target.value)}
-                                  className="w-full p-1 border rounded text-sm"
-                                  placeholder={`Marks (max ${formData.maxMarks || 10})`}
-                                  disabled={selectedStudents[student.id] === 'absent'}
-                                />
-                              </div>
-                            )}
-                          </td>
-                        </tr>
-                      ))}
-                    </tbody>
-                  </table>
-                </div>
-              </div>
-
-              <div className="p-4 border-t bg-gray-50 flex justify-end space-x-3">
-                <button
-                  type="button"
-                  onClick={() => setShowMarkAttendanceModal(false)}
-                  className="px-4 py-2 border border-gray-300 rounded-md text-sm font-medium text-gray-700 hover:bg-gray-50"
-                  disabled={isSubmitting}
-                >
-                  Cancel
-                </button>
-                <button
-                  type="submit"
-                  className="px-4 py-2 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
-                  disabled={isSubmitting}
-                >
-                  {isSubmitting ? 'Saving...' : 'Save Attendance'}
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-    </div>
+      <Dialog
+        open={showMarkAttendanceModal}
+        onClose={() => !isSubmitting && setShowMarkAttendanceModal(false)}
+        maxWidth="md"
+        fullWidth
+      >
+        <DialogTitle>Mark Attendance</DialogTitle>
+        <DialogContent>
+          <Box sx={{ mt: 2 }}>
+            <TextField
+              label="Date"
+              type="date"
+              name="date"
+              value={formData.date}
+              onChange={(e) => setFormData({...formData, date: e.target.value})}
+              fullWidth
+              margin="normal"
+              InputLabelProps={{ shrink: true }}
+              disabled={isSubmitting}
+            />
+            <FormControl fullWidth margin="normal" disabled={isSubmitting}>
+              <InputLabel>Subject</InputLabel>
+              <Select
+                name="subject"
+                value={formData.subject}
+                onChange={(e) => setFormData({...formData, subject: e.target.value})}
+                label="Subject"
+              >
+                {subjects.map((subject) => (
+                  <MenuItem key={subject.id} value={subject.id}>
+                    {subject.name} ({subject.code})
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth margin="normal" disabled={isSubmitting}>
+              <InputLabel>Period</InputLabel>
+              <Select
+                name="period"
+                value={formData.period}
+                onChange={(e) => setFormData({...formData, period: e.target.value})}
+                label="Period"
+              >
+                {[1, 2, 3, 4, 5, 6, 7, 8].map((period) => (
+                  <MenuItem key={period} value={period}>
+                    Period {period}
+                  </MenuItem>
+                ))}
+              </Select>
+            </FormControl>
+            <FormControl fullWidth margin="normal" disabled={isSubmitting}>
+              <InputLabel>Status</InputLabel>
+              <Select
+                name="status"
+                value={formData.status}
+                onChange={(e) => setFormData({...formData, status: e.target.value})}
+                label="Status"
+              >
+                <MenuItem value="present">Present</MenuItem>
+                <MenuItem value="absent">Absent</MenuItem>
+                <MenuItem value="late">Late</MenuItem>
+                <MenuItem value="excused">Excused</MenuItem>
+              </Select>
+            </FormControl>
+          </Box>
+        </DialogContent>
+        <DialogActions>
+          <Button 
+            onClick={() => !isSubmitting && setShowMarkAttendanceModal(false)}
+            disabled={isSubmitting}
+          >
+            Cancel
+          </Button>
+          <Button
+            variant="contained"
+            color="primary"
+            onClick={handleSubmitAttendance}
+            disabled={isSubmitting}
+            startIcon={isSubmitting ? <CircularProgress size={20} /> : null}
+          >
+            {isSubmitting ? 'Saving...' : 'Save Attendance'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+    </Box>
   );
 };
 

@@ -7,7 +7,7 @@ import {
   XMarkIcon
 } from '@heroicons/react/24/outline';
 import { toast } from 'react-hot-toast';
-import apiService from '../../services/api';
+import HostelService from '../../services/hostelService';
 
 const StatusManagement = () => {
   const [statuses, setStatuses] = useState([]);
@@ -20,7 +20,7 @@ const StatusManagement = () => {
 
   const fetchStatuses = async () => {
     try {
-      const response = await apiService.getMessStatuses();
+      const response = await HostelService.getMessStatuses();
       setStatuses(response);
     } catch (error) {
       console.error('Error fetching statuses:', error);
@@ -58,31 +58,38 @@ const StatusManagement = () => {
   const handleSubmit = async (e) => {
     e.preventDefault();
     try {
+      const statusData = {
+        meal_type: formData.meal_type,
+        status: formData.status,
+        updated_at: new Date().toISOString()
+      };
+
       if (editingId) {
-        await apiService.updateMessStatus(editingId, formData);
+        await HostelService.updateMessStatus(editingId, statusData);
         toast.success('Status updated successfully');
       } else {
-        await apiService.createMessStatus(formData);
+        await HostelService.createMessStatus(statusData);
         toast.success('Status added successfully');
       }
+      
       setEditingId(null);
       setFormData({ meal_type: '', status: 'active' });
-      fetchStatuses();
+      await fetchStatuses();
     } catch (error) {
       console.error('Error saving status:', error);
-      toast.error(`Failed to ${editingId ? 'update' : 'add'} status`);
+      toast.error(`Failed to ${editingId ? 'update' : 'add'} status: ${error.message}`);
     }
   };
 
   const handleDelete = async (id) => {
     if (window.confirm('Are you sure you want to delete this status?')) {
       try {
-        await apiService.deleteMessStatus(id);
+        await HostelService.deleteMessStatus(id);
         toast.success('Status deleted successfully');
-        fetchStatuses();
+        await fetchStatuses();
       } catch (error) {
         console.error('Error deleting status:', error);
-        toast.error('Failed to delete status');
+        toast.error(`Failed to delete status: ${error.message}`);
       }
     }
   };
@@ -182,25 +189,16 @@ const StatusManagement = () => {
             <table className="min-w-full divide-y divide-gray-300">
               <thead className="bg-gray-50">
                 <tr>
-                  <th
-                    scope="col"
-                    className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6"
-                  >
+                  <th className="py-3.5 pl-4 pr-3 text-left text-sm font-semibold text-gray-900 sm:pl-6">
                     Meal Type
                   </th>
-                  <th
-                    scope="col"
-                    className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
-                  >
+                  <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
                     Status
                   </th>
-                  <th
-                    scope="col"
-                    className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900"
-                  >
+                  <th className="px-3 py-3.5 text-left text-sm font-semibold text-gray-900">
                     Last Updated
                   </th>
-                  <th scope="col" className="relative py-3.5 pl-3 pr-4 sm:pr-6">
+                  <th className="relative py-3.5 pl-3 pr-4 sm:pr-6">
                     <span className="sr-only">Actions</span>
                   </th>
                 </tr>
@@ -208,23 +206,18 @@ const StatusManagement = () => {
               <tbody className="divide-y divide-gray-200 bg-white">
                 {statuses.length > 0 ? (
                   statuses.map((status) => (
-                    <tr key={status.id} className="hover:bg-gray-50">
+                    <tr key={status.id}>
                       <td className="whitespace-nowrap py-4 pl-4 pr-3 text-sm font-medium text-gray-900 sm:pl-6">
                         {status.meal_type}
                       </td>
-                      <td className="whitespace-nowrap px-3 py-4 text-sm">
-                        <span
-                          className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                            status.status === 'active'
-                              ? 'bg-green-100 text-green-800'
-                              : status.status === 'inactive'
-                              ? 'bg-red-100 text-red-800'
-                              : status.status === 'delayed'
-                              ? 'bg-yellow-100 text-yellow-800'
-                              : 'bg-gray-100 text-gray-800'
-                          }`}
-                        >
-                          {status.status.charAt(0).toUpperCase() + status.status.slice(1)}
+                      <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                          status.status === 'active' ? 'bg-green-100 text-green-800' :
+                          status.status === 'inactive' ? 'bg-yellow-100 text-yellow-800' :
+                          status.status === 'delayed' ? 'bg-blue-100 text-blue-800' :
+                          'bg-red-100 text-red-800'
+                        }`}>
+                          {status.status}
                         </span>
                       </td>
                       <td className="whitespace-nowrap px-3 py-4 text-sm text-gray-500">
@@ -249,7 +242,7 @@ const StatusManagement = () => {
                     </tr>
                   ))
                 ) : (
-                  <tr>
+                  <tr key="no-statuses">
                     <td colSpan="4" className="px-6 py-4 text-center text-sm text-gray-500">
                       No statuses found. Add one to get started.
                     </td>

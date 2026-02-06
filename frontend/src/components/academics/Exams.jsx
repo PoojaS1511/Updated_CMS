@@ -372,7 +372,6 @@ const Exams = () => {
                 <TableCell>Name</TableCell>
                 <TableCell>Type</TableCell>
                 <TableCell>Date</TableCell>
-                <TableCell>Course</TableCell>
                 <TableCell>Subject</TableCell>
                 <TableCell>Semester</TableCell>
                 <TableCell>Total Marks</TableCell>
@@ -383,7 +382,7 @@ const Exams = () => {
             <TableBody>
               {loading ? (
                 <TableRow>
-                  <TableCell colSpan={9} align="center">
+                  <TableCell colSpan={8} align="center">
                     Loading...
                   </TableCell>
                 </TableRow>
@@ -397,7 +396,6 @@ const Exams = () => {
                       <TableCell>
                         {exam.exam_date ? format(new Date(exam.exam_date), 'MMM dd, yyyy') : 'N/A'}
                       </TableCell>
-                      <TableCell>{exam.courses?.name || 'N/A'}</TableCell>
                       <TableCell>{exam.subjects?.name || 'N/A'}</TableCell>
                       <TableCell>{exam.semester}</TableCell>
                       <TableCell>{exam.total_marks}</TableCell>
@@ -441,7 +439,7 @@ const Exams = () => {
                   ))
               ) : (
                 <TableRow>
-                  <TableCell colSpan={9} align="center">
+                  <TableCell colSpan={8} align="center">
                     No exams found. Click 'Add Exam' to create one.
                   </TableCell>
                 </TableRow>

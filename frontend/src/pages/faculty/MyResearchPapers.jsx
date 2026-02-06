@@ -2,6 +2,8 @@ import React, { useState, useEffect } from 'react';
 import { useAuth } from '../../contexts/AuthContext';
 import { supabase } from '../../lib/supabase';
 import { toast } from 'react-toastify';
+import { Dialog, Transition } from '@headlessui/react';
+import { Fragment } from 'react';
 
 const MyResearchPapers = () => {
   const { user } = useAuth();
@@ -9,6 +11,17 @@ const MyResearchPapers = () => {
   const [faculty, setFaculty] = useState(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
+  const [isModalOpen, setIsModalOpen] = useState(false);
+  const [formData, setFormData] = useState({
+    title: '',
+    authors: '',
+    journal: '',
+    publication_date: '',
+    doi: '',
+    abstract: '',
+    pdf_url: ''
+  });
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   useEffect(() => {
     const fetchFacultyAndResearchPapers = async () => {
@@ -48,6 +61,64 @@ const MyResearchPapers = () => {
     }
   }, [user]);
 
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setFormData(prev => ({
+      ...prev,
+      [name]: value
+    }));
+  };
+
+  const handleSubmit = async (e) => {
+    e.preventDefault();
+    if (!faculty?.id) {
+      toast.error('Faculty information not found');
+      return;
+    }
+
+    setIsSubmitting(true);
+    try {
+      const { data, error } = await supabase
+        .from('research_papers')
+        .insert([
+          {
+            ...formData,
+            faculty_id: faculty.id,
+            publication_date: formData.publication_date || null,
+            created_at: new Date().toISOString(),
+            updated_at: new Date().toISOString()
+          }
+        ]);
+
+      if (error) throw error;
+
+      // Refresh the papers list
+      const { data: papersData } = await supabase
+        .from('research_papers')
+        .select('*')
+        .eq('faculty_id', faculty.id)
+        .order('publication_date', { ascending: false });
+
+      setResearchPapers(papersData || []);
+      toast.success('Research paper added successfully!');
+      setFormData({
+        title: '',
+        authors: '',
+        journal: '',
+        publication_date: '',
+        doi: '',
+        abstract: '',
+        pdf_url: ''
+      });
+      setIsModalOpen(false);
+    } catch (err) {
+      console.error('Error adding research paper:', err);
+      toast.error('Failed to add research paper');
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
+
   if (loading) {
     return (
       <div className="flex justify-center items-center h-64">
@@ -77,6 +148,15 @@ const MyResearchPapers = () => {
     <div className="p-6">
       <div className="flex justify-between items-center mb-6">
         <h1 className="text-2xl font-bold text-gray-800">My Research Papers</h1>
+        <button
+          onClick={() => setIsModalOpen(true)}
+          className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500"
+        >
+          <svg className="-ml-1 mr-2 h-5 w-5" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 20 20" fill="currentColor">
+            <path fillRule="evenodd" d="M10 3a1 1 0 011 1v5h5a1 1 0 110 2h-5v5a1 1 0 11-2 0v-5H4a1 1 0 110-2h5V4a1 1 0 011-1z" clipRule="evenodd" />
+          </svg>
+          Add Paper
+        </button>
       </div>
 
       <div className="mb-6 bg-white p-4 rounded-lg shadow">
@@ -174,8 +254,171 @@ const MyResearchPapers = () => {
           </table>
         </div>
       </div>
+
+      {/* Add Paper Modal */}
+      <Transition appear show={isModalOpen} as={Fragment}>
+        <Dialog as="div" className="relative z-10" onClose={() => !isSubmitting && setIsModalOpen(false)}>
+          <Transition.Child
+            as={Fragment}
+            enter="ease-out duration-300"
+            enterFrom="opacity-0"
+            enterTo="opacity-100"
+            leave="ease-in duration-200"
+            leaveFrom="opacity-100"
+            leaveTo="opacity-0"
+          >
+            <div className="fixed inset-0 bg-black bg-opacity-25" />
+          </Transition.Child>
+
+          <div className="fixed inset-0 overflow-y-auto">
+            <div className="flex min-h-full items-center justify-center p-4 text-center">
+              <Transition.Child
+                as={Fragment}
+                enter="ease-out duration-300"
+                enterFrom="opacity-0 scale-95"
+                enterTo="opacity-100 scale-100"
+                leave="ease-in duration-200"
+                leaveFrom="opacity-100 scale-100"
+                leaveTo="opacity-0 scale-95"
+              >
+                <Dialog.Panel className="w-full max-w-2xl transform overflow-hidden rounded-2xl bg-white p-6 text-left align-middle shadow-xl transition-all">
+                  <Dialog.Title as="h3" className="text-lg font-medium leading-6 text-gray-900">
+                    Add New Research Paper
+                  </Dialog.Title>
+                  
+                  <form onSubmit={handleSubmit} className="mt-4 space-y-4">
+                    <div>
+                      <label htmlFor="title" className="block text-sm font-medium text-gray-700">Title *</label>
+                      <input
+                        type="text"
+                        id="title"
+                        name="title"
+                        value={formData.title}
+                        onChange={handleInputChange}
+                        required
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="authors" className="block text-sm font-medium text-gray-700">Authors *</label>
+                      <input
+                        type="text"
+                        id="authors"
+                        name="authors"
+                        value={formData.authors}
+                        onChange={handleInputChange}
+                        required
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        placeholder="Separate multiple authors with commas"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="journal" className="block text-sm font-medium text-gray-700">Journal/Conference *</label>
+                      <input
+                        type="text"
+                        id="journal"
+                        name="journal"
+                        value={formData.journal}
+                        onChange={handleInputChange}
+                        required
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label htmlFor="publication_date" className="block text-sm font-medium text-gray-700">Publication Date *</label>
+                        <input
+                          type="date"
+                          id="publication_date"
+                          name="publication_date"
+                          value={formData.publication_date}
+                          onChange={handleInputChange}
+                          required
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        />
+                      </div>
+
+                      <div>
+                        <label htmlFor="doi" className="block text-sm font-medium text-gray-700">DOI</label>
+                        <input
+                          type="text"
+                          id="doi"
+                          name="doi"
+                          value={formData.doi}
+                          onChange={handleInputChange}
+                          className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                          placeholder="10.xxxx/xxxxx"
+                        />
+                      </div>
+                    </div>
+
+                    <div>
+                      <label htmlFor="pdf_url" className="block text-sm font-medium text-gray-700">PDF URL</label>
+                      <input
+                        type="url"
+                        id="pdf_url"
+                        name="pdf_url"
+                        value={formData.pdf_url}
+                        onChange={handleInputChange}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                        placeholder="https://example.com/paper.pdf"
+                      />
+                    </div>
+
+                    <div>
+                      <label htmlFor="abstract" className="block text-sm font-medium text-gray-700">Abstract</label>
+                      <textarea
+                        id="abstract"
+                        name="abstract"
+                        rows={4}
+                        value={formData.abstract}
+                        onChange={handleInputChange}
+                        className="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500"
+                      />
+                    </div>
+
+                    <div className="mt-6 flex justify-end space-x-3">
+                      <button
+                        type="button"
+                        onClick={() => setIsModalOpen(false)}
+                        disabled={isSubmitting}
+                        className="px-4 py-2 border border-gray-300 rounded-md shadow-sm text-sm font-medium text-gray-700 bg-white hover:bg-gray-50 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        disabled={isSubmitting}
+                        className="inline-flex justify-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50"
+                      >
+                        {isSubmitting ? 'Saving...' : 'Save Paper'}
+                      </button>
+                    </div>
+                  </form>
+                </Dialog.Panel>
+              </Transition.Child>
+            </div>
+          </div>
+        </Dialog>
+      </Transition>
     </div>
   );
 };
 
-export default MyResearchPapers;
+// Wrap the component with auth check
+export default function MyResearchPapersWrapper() {
+  const { user } = useAuth();
+  
+  if (!user) {
+    return (
+      <div className="flex justify-center items-center h-64">
+        <p className="text-gray-600">Please log in to view research papers</p>
+      </div>
+    );
+  }
+  
+  return <MyResearchPapers />;
+}
