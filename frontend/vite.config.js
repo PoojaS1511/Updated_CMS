@@ -3,11 +3,34 @@ import react from '@vitejs/plugin-react';
 import { fileURLToPath, URL } from 'url';
 
 export default defineConfig({
-  base: '/',
+  base: './',
   define: {
     'process.env': {
       REACT_APP_API_URL: '',
       REACT_APP_LOGGING_URL: '/api/errors'
+    }
+  },
+  build: {
+    outDir: 'dist',
+    emptyOutDir: true,
+    rollupOptions: {
+      output: {
+        manualChunks: {
+          react: ['react', 'react-dom', 'react-router-dom'],
+          vendor: ['@supabase/supabase-js', '@heroicons/react']
+        }
+      }
+    }
+  },
+  server: {
+    port: 3000,
+    open: true,
+    proxy: {
+      '/api': {
+        target: 'http://localhost:5000',
+        changeOrigin: true,
+        secure: false
+      }
     }
   },
   plugins: [
