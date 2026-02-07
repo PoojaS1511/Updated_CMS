@@ -849,6 +849,48 @@ class ApiService {
   }
 
   // ====================================
+  // Student Resume Methods
+  // ====================================
+  static async getStudentResume(studentId) {
+    try {
+      if (!studentId) {
+        throw new Error('Student ID is required');
+      }
+
+      const { data, error } = await supabase
+        .from('resumes')
+        .select('*')
+        .eq('student_id', studentId)
+        .order('upload_date', { ascending: false })
+        .limit(1);
+
+      if (error) throw error;
+
+      // If no resume found, return success but with uploaded: false
+      if (!data || data.length === 0) {
+        return {
+          success: true,
+          uploaded: false,
+          data: null
+        };
+      }
+
+      return {
+        success: true,
+        uploaded: true,
+        data: data[0] // Return the first (and only) result
+      };
+    } catch (error) {
+      console.error('Error fetching student resume:', error);
+      return {
+        success: false,
+        error: error.message,
+        uploaded: false
+      };
+    }
+  }
+
+  // ====================================
   // Internal Marks Methods
   // ====================================
   static async saveInternalMarks(marksData) {

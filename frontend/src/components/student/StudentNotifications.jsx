@@ -1,6 +1,6 @@
-import React, { useState, useEffect } from 'react'
-import { useAuth } from '../../contexts/AuthContext'
-import apiService from '../../services/api'
+import React, { useState, useEffect, useCallback } from 'react';
+import { useAuth } from '../../contexts/AuthContext';
+import { supabase } from '../../lib/supabase';
 import { 
   BellIcon, 
   ExclamationTriangleIcon, 
@@ -8,7 +8,7 @@ import {
   CheckCircleIcon,
   XMarkIcon,
   FunnelIcon
-} from '@heroicons/react/24/outline'
+} from '@heroicons/react/24/outline';
 
 const StudentNotifications = () => {
   const { user } = useAuth()
@@ -20,120 +20,180 @@ const StudentNotifications = () => {
     fetchNotifications()
   }, [user])
 
-  const fetchNotifications = async () => {
+  const fetchNotifications = useCallback(async () => {
+    if (!user?.user_id) {
+      console.log('No user ID found in user object:', user);
+      setLoading(false);
+      return;
+    }
+
     try {
-      if (!user) return
+      setLoading(true);
+      console.log('Fetching notifications for auth user ID:', user.user_id);
 
-      // Mock notifications data
-      const mockNotifications = [
-        {
-          id: 1,
-          title: 'Semester Fee Payment Reminder',
-          message: 'Your semester fee payment is due on January 15, 2025. Please complete the payment to avoid late fees.',
-          type: 'administrative',
-          priority: 'high',
-          read: false,
-          created_at: '2025-01-05T10:00:00Z',
-          sender: 'Accounts Department'
-        },
-        {
-          id: 2,
-          title: 'Final Exam Schedule Released',
-          message: 'The final examination schedule for Semester 5 has been published. Check your exam dates and timings.',
-          type: 'academic',
-          priority: 'high',
-          read: false,
-          created_at: '2025-01-04T14:30:00Z',
-          sender: 'Examination Department'
-        },
-        {
-          id: 3,
-          title: 'Cultural Fest Registration Open',
-          message: 'Registration for Cube Fiesta 2025 is now open. Register for various events and competitions.',
-          type: 'events',
-          priority: 'medium',
-          read: true,
-          created_at: '2025-01-03T09:15:00Z',
-          sender: 'Student Activities'
-        },
-        {
-          id: 4,
-          title: 'Library Book Return Reminder',
-          message: 'You have 2 books due for return by January 12, 2025. Please return them to avoid fine.',
-          type: 'administrative',
-          priority: 'medium',
-          read: false,
-          created_at: '2025-01-02T16:45:00Z',
-          sender: 'Library Department'
-        },
-        {
-          id: 5,
-          title: 'Attendance Warning',
-          message: 'Your attendance in Computer Networks is below 75%. Please attend classes regularly.',
-          type: 'academic',
-          priority: 'high',
-          read: true,
-          created_at: '2025-01-01T11:20:00Z',
-          sender: 'Academic Department'
-        },
-        {
-          id: 6,
-          title: 'Hostel Room Inspection',
-          message: 'Hostel room inspection will be conducted on January 8, 2025. Please keep your rooms clean.',
-          type: 'administrative',
-          priority: 'low',
-          read: true,
-          created_at: '2024-12-30T08:00:00Z',
-          sender: 'Hostel Warden'
-        },
-        {
-          id: 7,
-          title: 'Project Submission Guidelines',
-          message: 'Updated guidelines for semester project submission have been uploaded to the portal.',
-          type: 'academic',
-          priority: 'medium',
-          read: false,
-          created_at: '2024-12-28T13:30:00Z',
-          sender: 'Dr. Smith - CSE Department'
-        },
-        {
-          id: 8,
-          title: 'Transport Route Change',
-          message: 'Route RT-15 timing has been changed. New pickup time is 7:30 AM instead of 7:45 AM.',
-          type: 'administrative',
-          priority: 'medium',
-          read: true,
-          created_at: '2024-12-25T07:00:00Z',
-          sender: 'Transport Department'
-        }
-      ]
+      // Fetch notification recipients for this user using the auth user_id
+      const { data: recipients, error: recipientsError } = await supabase
+        .from('notification_recipients')
+        .select(`
+          id,
+          is_read,
+          read_at,
+          notification_id,
+          notifications!notification_id(
+            id,
+            title,
+            message,
+            type,
+            category,
+            created_at,
+            sender_id
+          )
+        `)
+        .eq('user_id', user.user_id)  // Using user.user_id which contains the auth ID
+        .order('created_at', { 
+          foreignTable: 'notifications', 
+          ascending: false 
+        });
 
-      setNotifications(mockNotifications)
+      if (recipientsError) {
+        console.error('Error fetching notification recipients:', recipientsError);
+        throw recipientsError;
+      }
+
+      console.log('Found notification recipients:', recipients?.length || 0);
+
+      if (!recipients?.length) {
+        console.log('No notification recipients found for user:', user.user_id);
+        setNotifications([]);
+        return;
+      }
+
+      // Format the notifications data according to the actual schema
+      const formattedNotifications = recipients.map(recipient => ({
+        id: recipient.id,
+        notification_id: recipient.notification_id,
+        title: recipient.notifications?.title || 'No Title',
+        message: recipient.notifications?.message || '',
+        type: recipient.notifications?.type || 'general',
+        category: recipient.notifications?.category || 'general',
+        read: recipient.is_read || false,
+        created_at: recipient.notifications?.created_at || new Date().toISOString(),
+        sender_id: recipient.notifications?.sender_id,
+        read_at: recipient.read_at
+      }));
+
+      // Sort by created_at in descending order
+      formattedNotifications.sort((a, b) => 
+        new Date(b.created_at) - new Date(a.created_at)
+      );
+
+      setNotifications(formattedNotifications);
     } catch (error) {
-      console.error('Error fetching notifications:', error)
+      console.error('Error in fetchNotifications:', error);
+      // You might want to show an error toast here
     } finally {
-      setLoading(false)
+      setLoading(false);
+    }
+  }, [user]);
+
+  // Set up real-time subscription for notifications
+  useEffect(() => {
+    if (!user) return;
+
+    // Subscribe to changes in notification_recipients for this user
+    const subscription = supabase
+      .channel('notification_changes')
+      .on('postgres_changes', 
+        { 
+          event: '*', 
+          schema: 'public', 
+          table: 'notification_recipients',
+          filter: `user_id=eq.${user.user_id}`  // Using user.user_id for consistency
+        }, 
+        () => {
+          fetchNotifications(); // Refresh notifications on any change
+        }
+      )
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(subscription);
+    };
+  }, [user, fetchNotifications]);
+
+  const markAsRead = async (notificationId) => {
+    try {
+      // Update the notification as read in the database
+      const { error } = await supabase
+        .from('notification_recipients')
+        .update({ 
+          is_read: true,
+          read_at: new Date().toISOString()
+        })
+        .eq('id', notificationId)
+
+      if (error) throw error
+
+      // Optimistically update the UI
+      setNotifications(prev => 
+        prev.map(notif => 
+          notif.id === notificationId ? { ...notif, read: true } : notif
+        )
+      )
+    } catch (error) {
+      console.error('Error marking notification as read:', error)
+      // You might want to show an error toast here
     }
   }
 
-  const markAsRead = async (notificationId) => {
-    setNotifications(prev => 
-      prev.map(notif => 
-        notif.id === notificationId ? { ...notif, read: true } : notif
+  const markAllAsRead = async () => {
+    try {
+      // Get all unread notification IDs
+      const unreadIds = notifications
+        .filter(notif => !notif.read)
+        .map(notif => notif.id)
+
+      if (unreadIds.length === 0) return
+
+      // Mark all as read in the database
+      const { error } = await supabase
+        .from('notification_recipients')
+        .update({ 
+          is_read: true,
+          read_at: new Date().toISOString()
+        })
+        .in('id', unreadIds)
+
+      if (error) throw error
+
+      // Optimistically update the UI
+      setNotifications(prev => 
+        prev.map(notif => ({ ...notif, read: true }))
       )
-    )
+    } catch (error) {
+      console.error('Error marking all notifications as read:', error)
+      // You might want to show an error toast here
+    }
   }
 
-  const markAllAsRead = () => {
-    setNotifications(prev => 
-      prev.map(notif => ({ ...notif, read: true }))
-    )
-  }
+  const deleteNotification = async (notificationId) => {
+    try {
+      // Delete the notification from the database
+      const { error } = await supabase
+        .from('notification_recipients')
+        .delete()
+        .eq('id', notificationId)
 
-  const deleteNotification = (notificationId) => {
-    setNotifications(prev => 
-      prev.filter(notif => notif.id !== notificationId)
-    )
+      if (error) throw error
+
+      // Optimistically update the UI
+      setNotifications(prev => 
+        prev.filter(notif => notif.id !== notificationId)
+      )
+    } catch (error) {
+      console.error('Error deleting notification:', error)
+      // You might want to show an error toast here
+    }
   }
 
   const getFilteredNotifications = () => {
@@ -198,7 +258,7 @@ const StudentNotifications = () => {
           <div>
             <h2 className="text-2xl font-bold text-gray-900 mb-2">Notifications</h2>
             <p className="text-gray-600">
-              {getUnreadCount()} unread notifications • {notifications.length} total
+              {getUnreadCount()} unread notifications ??? {notifications.length} total
             </p>
           </div>
           <div className="flex space-x-3">
@@ -298,7 +358,7 @@ const StudentNotifications = () => {
                       
                       <div className="flex items-center space-x-4 text-sm text-gray-500">
                         <span>From: {notification.sender}</span>
-                        <span>•</span>
+                        <span>???</span>
                         <span>
                           {new Date(notification.created_at).toLocaleDateString('en-US', {
                             month: 'short',
@@ -307,7 +367,7 @@ const StudentNotifications = () => {
                             minute: '2-digit'
                           })}
                         </span>
-                        <span>•</span>
+                        <span>???</span>
                         <span className="capitalize">{notification.type}</span>
                       </div>
                     </div>

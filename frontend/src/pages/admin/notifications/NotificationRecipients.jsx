@@ -13,7 +13,7 @@ import {
   Tag,
   Card,
   Typography,
-  InputNumber
+  Checkbox
 } from 'antd';
 import {
   PlusOutlined,
@@ -21,12 +21,15 @@ import {
   DeleteOutlined
 } from '@ant-design/icons';
 import NotificationService from '../../../services/notificationService';
+import { supabase } from '../../../lib/supabase';
 
 const { Title } = Typography;
 const { Option } = Select;
 
 const NotificationRecipients = () => {
   const [recipients, setRecipients] = useState([]);
+  const [notifications, setNotifications] = useState([]);
+  const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(false);
   const [isModalVisible, setIsModalVisible] = useState(false);
   const [editingRecipient, setEditingRecipient] = useState(null);
@@ -44,8 +47,32 @@ const NotificationRecipients = () => {
     setLoading(false);
   };
 
+  const fetchNotifications = async () => {
+    const { data, error } = await NotificationService.getNotifications();
+    if (data) {
+      setNotifications(data);
+    } else {
+      message.error(error || 'Failed to fetch notifications');
+    }
+  };
+
+  const fetchUsers = async () => {
+    const { data, error } = await supabase
+      .from('profiles')
+      .select('*')
+      .order('name');
+    
+    if (data) {
+      setUsers(data);
+    } else {
+      message.error(error?.message || 'Failed to fetch users');
+    }
+  };
+
   useEffect(() => {
     fetchRecipients();
+    fetchNotifications();
+    fetchUsers();
   }, []);
 
   const handleCreate = () => {
@@ -56,7 +83,6 @@ const NotificationRecipients = () => {
 
   const handleEdit = (record) => {
     form.setFieldsValue({
-      ...record,
       notification_id: record.notification_id,
       user_id: record.user_id,
       is_read: record.is_read
@@ -80,10 +106,16 @@ const NotificationRecipients = () => {
       const values = await form.validateFields();
       setLoading(true);
 
+      const recipientData = {
+        notification_id: values.notification_id,
+        user_id: values.user_id,
+        is_read: values.is_read || false
+      };
+
       if (editingRecipient) {
         const { success, error } = await NotificationService.updateNotificationRecipient(
           editingRecipient.id,
-          values
+          recipientData
         );
         if (success) {
           message.success('Recipient updated successfully');
@@ -91,7 +123,7 @@ const NotificationRecipients = () => {
           message.error(error || 'Failed to update recipient');
         }
       } else {
-        const { success, error } = await NotificationService.createNotificationRecipient(values);
+        const { success, error } = await NotificationService.createNotificationRecipient(recipientData);
         if (success) {
           message.success('Recipient created successfully');
         } else {
@@ -220,28 +252,52 @@ const NotificationRecipients = () => {
         >
           <Form.Item
             name="notification_id"
-            label="Notification ID"
-            rules={[{ required: true, message: 'Please enter notification ID' }]}
+            label="Notification"
+            rules={[{ required: true, message: 'Please select a notification' }]}
           >
-            <Input placeholder="Enter notification ID" />
+            <Select
+              showSearch
+              placeholder="Select a notification"
+              optionFilterProp="children"
+              filterOption={(input, option) =>
+                option.children.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {notifications.map(notification => (
+                <Option key={notification.id} value={notification.id}>
+                  {notification.title} - {new Date(notification.created_at).toLocaleDateString()}
+                </Option>
+              ))}
+            </Select>
           </Form.Item>
           
           <Form.Item
             name="user_id"
-            label="User ID"
-            rules={[{ required: true, message: 'Please enter user ID' }]}
+            label="User"
+            rules={[{ required: true, message: 'Please select a user' }]}
           >
-            <Input placeholder="Enter user ID" />
+            <Select
+              showSearch
+              placeholder="Select a user"
+              optionFilterProp="children"
+              filterOption={(input, option) =>
+                option.children.toLowerCase().includes(input.toLowerCase())
+              }
+            >
+              {users.map(user => (
+                <Option key={user.id} value={user.id}>
+                  {user.name} ({user.email})
+                </Option>
+              ))}
+            </Select>
           </Form.Item>
           
           <Form.Item
             name="is_read"
             label="Status"
+            valuePropName="checked"
           >
-            <Select>
-              <Option value={false}>Unread</Option>
-              <Option value={true}>Read</Option>
-            </Select>
+            <Checkbox>Mark as read</Checkbox>
           </Form.Item>
         </Form>
       </Modal>

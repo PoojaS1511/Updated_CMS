@@ -402,16 +402,7 @@ const AdminSidebar = () => {
           path: 'smart-classroom',
           fullPath: '/admin/infrastructure/smart-classroom'
         },
-        { 
-          name: 'Lab Equipment', 
-          path: 'lab-equipment',
-          fullPath: '/admin/infrastructure/lab-equipment'
-        },
-        { 
-          name: 'Auditorium Booking', 
-          path: 'auditorium',
-          fullPath: '/admin/infrastructure/auditorium'
-        }
+       
       ]
     },
     { 
@@ -469,82 +460,7 @@ const AdminSidebar = () => {
       color: 'text-fuchsia-600',
       bgColor: 'bg-fuchsia-100'
     },
-    { 
-      name: 'IT & Digital Services', 
-      path: 'it',
-      icon: CpuChipIcon,
-      color: 'text-purple-600',
-      bgColor: 'bg-purple-100',
-      hasChildren: true,
-      children: [
-        { 
-          name: 'WiFi Access', 
-          path: 'it/wifi',
-          icon: WifiIcon,
-          fullPath: '/admin/it/wifi'
-        },
-        { 
-          name: 'Device Management', 
-          path: 'it/devices',
-          icon: DevicePhoneMobileIcon,
-          fullPath: '/admin/it/devices'
-        },
-        { 
-          name: 'Computer Labs', 
-          path: 'it/labs',
-          icon: ComputerDesktopIcon,
-          fullPath: '/admin/it/labs'
-        },
-        { 
-          name: 'Software Licenses', 
-          path: 'it/software',
-          icon: ServerIcon,
-          fullPath: '/admin/it/software'
-        }
-      ]
-    },
-    { 
-      name: 'Sports & Recreation', 
-      path: 'sports',
-      icon: TrophyIcon,
-      color: 'text-yellow-600',
-      bgColor: 'bg-yellow-100',
-      hasChildren: true,
-      children: [
-        { 
-          name: 'Equipment Booking', 
-          path: 'equipment',
-          icon: WrenchScrewdriverIcon,
-          color: 'text-yellow-600',
-          bgColor: 'bg-yellow-50',
-          fullPath: '/admin/sports/equipment'
-        },
-        { 
-          name: 'Ground Reservation', 
-          path: 'grounds',
-          icon: UserGroupSolidIcon,
-          color: 'text-green-600',
-          bgColor: 'bg-green-50',
-          fullPath: '/admin/sports/grounds'
-        },
-        { 
-          name: 'Fitness Logs', 
-          path: 'fitness',
-          icon: FireIcon,
-          color: 'text-red-600',
-          bgColor: 'bg-red-50',
-          fullPath: '/admin/sports/fitness'
-        },
-        { 
-          name: 'Event Tracker', 
-          path: 'events',
-          icon: CalendarDaysIcon,
-          color: 'text-purple-600',
-          bgColor: 'bg-purple-50',
-          fullPath: '/admin/sports/events'
-        }
-      ]
-    },
+
     { 
       name: 'Analytics Dashboard', 
       path: 'analytics',

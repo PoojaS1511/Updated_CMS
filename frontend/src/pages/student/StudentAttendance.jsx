@@ -4,100 +4,6 @@ import { CalendarIcon, CheckCircleIcon, XCircleIcon, ClockIcon } from '@heroicon
 import { supabase } from '../../services/supabaseClient';
 import { TABLES } from '../../lib/supabase';
 
-// Mock data for development and testing
-const mockAttendanceData = [
-  {
-    id: 1,
-    date: '2025-02-05',
-    status: 'present',
-    subject: 'Mathematics',
-    subjectCode: 'MATH101',
-    period: 'Period 1 (09:00 - 10:00)',
-    notes: 'Regular class'
-  },
-  {
-    id: 2,
-    date: '2025-02-05',
-    status: 'present',
-    subject: 'Physics',
-    subjectCode: 'PHYS102',
-    period: 'Period 2 (10:00 - 11:00)',
-    notes: 'Lab session'
-  },
-  {
-    id: 3,
-    date: '2025-02-04',
-    status: 'absent',
-    subject: 'Chemistry',
-    subjectCode: 'CHEM103',
-    period: 'Period 3 (11:30 - 12:30)',
-    notes: 'Missed class'
-  },
-  {
-    id: 4,
-    date: '2025-02-04',
-    status: 'present',
-    subject: 'Computer Science',
-    subjectCode: 'CS104',
-    period: 'Period 4 (13:30 - 14:30)',
-    notes: 'Practical exam'
-  },
-  {
-    id: 5,
-    date: '2025-02-03',
-    status: 'present',
-    subject: 'Mathematics',
-    subjectCode: 'MATH101',
-    period: 'Period 1 (09:00 - 10:00)',
-    notes: 'Quiz conducted'
-  },
-  {
-    id: 6,
-    date: '2025-02-03',
-    status: 'late',
-    subject: 'Physics',
-    subjectCode: 'PHYS102',
-    period: 'Period 2 (10:00 - 11:00)',
-    notes: 'Arrived 15 minutes late'
-  },
-  {
-    id: 7,
-    date: '2025-02-02',
-    status: 'present',
-    subject: 'Chemistry',
-    subjectCode: 'CHEM103',
-    period: 'Period 3 (11:30 - 12:30)',
-    notes: 'Lab experiment'
-  },
-  {
-    id: 8,
-    date: '2025-02-02',
-    status: 'absent',
-    subject: 'Computer Science',
-    subjectCode: 'CS104',
-    period: 'Period 4 (13:30 - 14:30)',
-    notes: 'Medical leave'
-  },
-  {
-    id: 9,
-    date: '2025-02-01',
-    status: 'present',
-    subject: 'Mathematics',
-    subjectCode: 'MATH101',
-    period: 'Period 1 (09:00 - 10:00)',
-    notes: 'Chapter test'
-  },
-  {
-    id: 10,
-    date: '2025-02-01',
-    status: 'present',
-    subject: 'Physics',
-    subjectCode: 'PHYS102',
-    period: 'Period 2 (10:00 - 11:00)',
-    notes: 'Group discussion'
-  }
-];
-
 const StudentAttendance = () => {
   const { student } = useStudent();
   const [attendanceData, setAttendanceData] = useState([]);
@@ -108,116 +14,84 @@ const StudentAttendance = () => {
     const fetchAttendanceData = async () => {
       if (!student?.id) {
         console.log('No student ID available');
-        // Use mock data in development when no student ID is available
-        if (process.env.NODE_ENV === 'development') {
-          console.log('Using mock attendance data for development');
-          setAttendanceData(mockAttendanceData);
-          setLoading(false);
-        }
+        setError('No student ID available. Please log in again.');
+        setLoading(false);
         return;
       }
       
       try {
         setLoading(true);
-        console.log('Fetching student data for user ID:', student.id);
+        console.log('Fetching attendance data for student ID:', student.id);
         
-        // First, verify the student exists and get their details
-        const { data: students, error: studentError, count } = await supabase
-          .from(TABLES.STUDENTS)
-          .select('id, course_id, current_semester, department_id, section, full_name, register_number', { count: 'exact' })
-          .eq('user_id', student.id);
-
-        console.log('Student query results:', { students, count, studentError });
-
-        if (studentError) {
-          console.error('Error fetching student data:', studentError);
-          // Fall back to mock data in development
-          if (process.env.NODE_ENV === 'development') {
-            console.warn('Using mock data due to error:', studentError.message);
-            setAttendanceData(mockAttendanceData);
-            setLoading(false);
-            return;
-          }
-          throw new Error(`Failed to load student data: ${studentError.message}`);
-        }
-        
-        if (!students || students.length === 0) {
-          const errorMsg = `No student record found for user ID: ${student.id}. Please ensure your student profile is properly set up.`;
-          console.warn(errorMsg);
-          // Fall back to mock data in development
-          if (process.env.NODE_ENV === 'development') {
-            console.warn('Using mock data as no student record found');
-            setAttendanceData(mockAttendanceData);
-            setLoading(false);
-            return;
-          }
-          setError(errorMsg);
-          setAttendanceData([]);
-          return;
-        }
-
-        // Use the first student record if multiple exist
-        const studentData = students[0];
-
-        // Then fetch attendance records with related data
-        const { data, error: fetchError } = await supabase
+        // First, get all attendance records for the student
+        const { data: attendance, error: attendanceError } = await supabase
           .from('student_attendance')
-          .select(`
-            id,
-            attendance_date,
-            status,
-            subject_id,
-            subjects (id, name, code),
-            class_schedule_id,
-            class_schedules (id, period_number, start_time, end_time),
-            notes
-          `)
+          .select('*')
           .eq('student_id', student.id)
           .order('attendance_date', { ascending: false });
 
-        if (fetchError) {
-          console.error('Error fetching attendance data:', fetchError);
-          // Fall back to mock data in development
-          if (process.env.NODE_ENV === 'development') {
-            console.warn('Using mock data due to fetch error:', fetchError.message);
-            setAttendanceData(mockAttendanceData);
-            setLoading(false);
-            return;
-          }
-          throw fetchError;
+        if (attendanceError) {
+          throw new Error(`Failed to load attendance: ${attendanceError.message}`);
         }
 
-        // If no data found, use mock data in development
-        if ((!data || data.length === 0) && process.env.NODE_ENV === 'development') {
-          console.warn('No attendance records found, using mock data');
-          setAttendanceData(mockAttendanceData);
+        if (!attendance || attendance.length === 0) {
+          setAttendanceData([]);
           setLoading(false);
           return;
         }
 
-        // Transform the data to match the expected format
-        const formattedData = data.map(record => ({
-          id: record.id,
-          date: new Date(record.attendance_date).toISOString().split('T')[0],
-          status: record.status.toLowerCase(),
-          subject: record.subjects?.name || `Subject ${record.subject_id}`,
-          subjectCode: record.subjects?.code || '',
-          period: record.class_schedules 
-            ? `Period ${record.class_schedules.period_number} (${record.class_schedules.start_time} - ${record.class_schedules.end_time})` 
-            : 'N/A',
-          notes: record.notes
-        }));
+        // Get unique subject and faculty IDs
+        const subjectIds = [...new Set(attendance.map(a => a.subject_id))];
+        const facultyIds = [...new Set(attendance.filter(a => a.faculty_id).map(a => a.faculty_id))];
+        const scheduleIds = [...new Set(attendance.filter(a => a.class_schedule_id).map(a => a.class_schedule_id))];
+
+        // Fetch related data in parallel
+        const [
+          { data: subjects },
+          { data: faculties },
+          { data: schedules }
+        ] = await Promise.all([
+          subjectIds.length > 0 
+            ? supabase.from('subjects').select('*').in('id', subjectIds)
+            : { data: [] },
+          facultyIds.length > 0 
+            ? supabase.from('faculty').select('*').in('id', facultyIds)
+            : { data: [] },
+          scheduleIds.length > 0
+            ? supabase.from('class_schedule').select('*').in('id', scheduleIds)
+            : { data: [] }
+        ]);
+
+        // Create lookup maps
+        const subjectsMap = new Map(subjects?.map(s => [s.id, s]) || []);
+        const facultiesMap = new Map(faculties?.map(f => [f.id, f]) || []);
+        const schedulesMap = new Map(schedules?.map(s => [s.id, s]) || []);
+
+        // Transform the data
+        const formattedData = attendance.map(record => {
+          const subject = subjectsMap.get(record.subject_id);
+          const faculty = record.faculty_id ? facultiesMap.get(record.faculty_id) : null;
+          const schedule = record.class_schedule_id ? schedulesMap.get(record.class_schedule_id) : null;
+
+          return {
+            id: record.id,
+            date: new Date(record.attendance_date).toISOString().split('T')[0],
+            status: record.status.toLowerCase(),
+            subject: subject?.name || `Subject ${record.subject_id}`,
+            subjectCode: subject?.code || '',
+            period: schedule 
+              ? `Period ${schedule.period_number} (${schedule.start_time} - ${schedule.end_time})` 
+              : 'N/A',
+            notes: record.notes || '',
+            faculty: faculty?.full_name || 'N/A',
+            facultyEmail: faculty?.email || ''
+          };
+        });
 
         setAttendanceData(formattedData);
       } catch (err) {
         console.error('Error fetching attendance data:', err);
-        // Fall back to mock data in development
-        if (process.env.NODE_ENV === 'development') {
-          console.warn('Using mock data due to error:', err.message);
-          setAttendanceData(mockAttendanceData);
-        } else {
-          setError('Failed to load attendance data. ' + (err.message || 'Please try again later.'));
-        }
+        setError(`Failed to load attendance data: ${err.message}`);
       } finally {
         setLoading(false);
       }

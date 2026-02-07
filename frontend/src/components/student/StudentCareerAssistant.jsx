@@ -326,7 +326,7 @@ const StudentCareerAssistant = () => {
 
     try {
       const response = await fetch(`${API_BASE}/roadmap/steps/update-status`, {
-        method: 'POST',
+        method: 'PATCH',
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -381,15 +381,26 @@ const StudentCareerAssistant = () => {
 
   const handleGenerateRoadmap = async (e) => {
     e.preventDefault();
-    
+
     if (!user?.id) {
       toast.error('User not authenticated');
       return;
     }
-    
+
+    if (!formData.career_interest || !formData.weeks) {
+      toast.error('Please fill in all required fields');
+      return;
+    }
+
     setGenerating(true);
-    
+    toast('Generating your personalized roadmap with AI... This may take a moment.');
+
     try {
+      console.log('Generating roadmap with data:', {
+        student_id: user.id,
+        ...formData
+      });
+
       const response = await fetch(`${API_BASE}/roadmap/generate`, {
         method: 'POST',
         headers: {
@@ -402,16 +413,28 @@ const StudentCareerAssistant = () => {
           ...formData
         })
       });
-      
+
+      console.log('Response status:', response.status);
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to generate roadmap');
+        console.error('Error response:', errorData);
+        throw new Error(errorData.error || errorData.message || 'Failed to generate roadmap');
       }
-      
+
       const result = await response.json();
-      toast.success('Roadmap generated successfully!');
+      console.log('Roadmap generated:', result);
+
+      toast.success('Roadmap generated successfully with AI!');
       setShowGenerateForm(false);
-      
+
+      // Reset form
+      setFormData({
+        career_interest: '',
+        description: '',
+        weeks: 10
+      });
+
       // Refresh the roadmaps list
       const roadmapsResponse = await fetch(`${API_BASE}/roadmap/${user.id}`, {
         headers: {
@@ -419,12 +442,13 @@ const StudentCareerAssistant = () => {
           'Accept': 'application/json'
         }
       });
-      
+
       if (!roadmapsResponse.ok) {
         throw new Error('Failed to refresh roadmaps');
       }
-      
+
       const roadmapsData = await roadmapsResponse.json();
+      console.log('Refreshed roadmaps:', roadmapsData);
       setRoadmaps(Array.isArray(roadmapsData.roadmaps) ? roadmapsData.roadmaps : []);
     } catch (error) {
       console.error('Error generating roadmap:', error);
@@ -436,20 +460,27 @@ const StudentCareerAssistant = () => {
 
   const handleSendMessage = async () => {
     if (!chatMessage.trim()) return;
-    
+
+    if (!user?.id) {
+      toast.error('User not authenticated');
+      return;
+    }
+
     const userMessage = chatMessage.trim();
     setChatMessage('');
-    
+
     // Add user message to chat history
     const updatedChatHistory = [...chatHistory, { role: 'user', content: userMessage }];
     setChatHistory(updatedChatHistory);
     setChatLoading(true);
-    
+
     try {
-      if (!selectedRoadmap?.id) {
-        throw new Error('No roadmap selected');
-      }
-      
+      console.log('Sending message to AI mentor:', {
+        student_id: user.id,
+        roadmap_id: selectedRoadmap?.id,
+        message: userMessage
+      });
+
       const response = await fetch(`${API_BASE}/roadmap/mentor/chat`, {
         method: 'POST',
         headers: {
@@ -458,25 +489,31 @@ const StudentCareerAssistant = () => {
           'Authorization': `Bearer ${localStorage.getItem('token')}`
         },
         body: JSON.stringify({
+          student_id: user.id,
           message: userMessage,
-          roadmap_id: selectedRoadmap.id,
-          chat_history: updatedChatHistory
+          roadmap_id: selectedRoadmap?.id || null
         })
       });
-      
+
+      console.log('Response status:', response.status);
+
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || 'Failed to get mentor response');
+        console.error('Error response:', errorData);
+        throw new Error(errorData.error || errorData.message || 'Failed to get mentor response');
       }
-      
+
       const result = await response.json();
-      
+      console.log('AI mentor response:', result);
+
       // Add assistant's reply to chat history
       setChatHistory(prev => [
         ...prev,
         { role: 'assistant', content: result.reply }
       ]);
-      
+
+      toast.success('Response received!');
+
     } catch (error) {
       console.error('Error in chat:', error);
       toast.error(error.message || 'Failed to send message');

@@ -29,20 +29,20 @@ career_roadmap_bp = Blueprint('career_roadmap', __name__)
 supabase = get_supabase()
 
 # Configure Gemini AI
-GEMINI_API_KEY = os.getenv('GEMINI_API_KEY') or "AIzaSyAsOCdplJIByoMwNGT361AavkBp8T14c2A"
+GEMINI_API_KEY = os.getenv('GEMINI_API_KEY') or "AIzaSyCHUFZItopFXXiupZ7KQJb4APnWA5I_UXs"
 if genai_available:
     try:
         genai.configure(api_key=GEMINI_API_KEY)
         # Use gemini-1.5-flash instead of gemini-pro
         model = genai.GenerativeModel('gemini-1.5-flash')
-        logger.info("Gemini AI configured successfully with gemini-1.5-flash")
+        logger.info(f"Gemini AI configured successfully with gemini-1.5-flash (API key: {GEMINI_API_KEY[:20]}...)")
     except Exception as e:
         logger.error(f"Failed to configure Gemini AI: {e}")
         genai_available = False
         model = None
 else:
     model = None
-    logger.warning("Gemini AI not available")
+    logger.warning("Gemini AI not available - google.generativeai not installed")
 
 
 def generate_roadmap_with_ai(career_interest: str, weeks: int = 10) -> list:
@@ -54,7 +54,7 @@ def generate_roadmap_with_ai(career_interest: str, weeks: int = 10) -> list:
         weeks: Number of weeks for the roadmap (default: 10)
     
     Returns:
-        List of roadmap steps with week_no, topic, description, milestone, resource_link
+        List of roadmap steps with week_no, topic, description, milestone
     """
     if not genai_available or not model:
         logger.warning("Gemini AI not available, returning fallback roadmap")
@@ -67,28 +67,29 @@ You are a career guidance expert. Generate a detailed {weeks}-week learning road
 For each week, provide:
 1. Week number (1 to {weeks})
 2. Topic/Focus area
-3. Brief description (2-3 sentences, actionable)
+3. Brief description (2-3 sentences, actionable and specific)
 4. Milestone (what should be achieved by end of week)
-5. Optional resource link (free learning material URL - use real URLs from platforms like YouTube, freeCodeCamp, Coursera free courses, etc.)
 
 Format your response as a JSON array with this exact structure:
 [
   {{
     "week_no": 1,
     "topic": "Topic name",
-    "description": "Brief actionable description",
-    "milestone": "What to achieve",
-    "resource_link": "https://example.com/resource"
+    "description": "Brief actionable description with specific tasks and learning objectives",
+    "milestone": "Concrete achievement or deliverable for this week"
   }}
 ]
 
-Make it practical, beginner-friendly, and progressive. Focus on hands-on learning.
-Return ONLY the JSON array, no additional text.
+Make it practical, beginner-friendly, and progressive. Focus on hands-on learning with specific tasks.
+Return ONLY the JSON array, no additional text or markdown formatting.
 """
-        
+
+        logger.info(f"Generating roadmap with Gemini AI for: {career_interest}, {weeks} weeks")
         response = model.generate_content(prompt)
         response_text = response.text.strip()
-        
+
+        logger.info(f"Gemini AI raw response: {response_text[:200]}...")
+
         # Try to extract JSON from response
         if response_text.startswith('```json'):
             response_text = response_text[7:]
@@ -96,24 +97,22 @@ Return ONLY the JSON array, no additional text.
             response_text = response_text[3:]
         if response_text.endswith('```'):
             response_text = response_text[:-3]
-        
+
         response_text = response_text.strip()
-        
+
         # Parse JSON
         roadmap_steps = json.loads(response_text)
-        
+
         # Validate structure
         if not isinstance(roadmap_steps, list):
             raise ValueError("Response is not a list")
-        
+
         # Ensure all required fields are present
         for step in roadmap_steps:
             if not all(key in step for key in ['week_no', 'topic', 'description', 'milestone']):
                 raise ValueError("Missing required fields in roadmap step")
-            if 'resource_link' not in step:
-                step['resource_link'] = None
-        
-        logger.info(f"Successfully generated {len(roadmap_steps)} roadmap steps")
+
+        logger.info(f"Successfully generated {len(roadmap_steps)} roadmap steps with Gemini AI")
         return roadmap_steps
         
     except Exception as e:
@@ -136,16 +135,17 @@ def generate_fallback_roadmap(career_interest: str, weeks: int = 10) -> list:
         "Interview Preparation",
         "Continuous Learning"
     ]
-    
+
+    logger.info(f"Generating fallback roadmap for: {career_interest}, {weeks} weeks")
+
     for i in range(min(weeks, len(topics))):
         roadmap.append({
             "week_no": i + 1,
             "topic": f"{topics[i]} - {career_interest}",
             "description": f"Learn and practice {topics[i].lower()} related to {career_interest}. Focus on understanding key principles and building practical skills.",
-            "milestone": f"Complete exercises and mini-projects related to {topics[i].lower()}",
-            "resource_link": None
+            "milestone": f"Complete exercises and mini-projects related to {topics[i].lower()}"
         })
-    
+
     return roadmap
 
 
@@ -256,13 +256,18 @@ def generate_roadmap():
 
         # Generate roadmap using AI first (before any DB operations)
         try:
+            logger.info(f"Calling generate_roadmap_with_ai for {career_interest}, {weeks} weeks")
             roadmap_steps = generate_roadmap_with_ai(career_interest, weeks)
+            logger.info(f"Generated {len(roadmap_steps)} steps")
+            logger.info(f"Sample step: {roadmap_steps[0] if roadmap_steps else 'No steps'}")
         except Exception as e:
             logger.error(f"Failed to generate roadmap with AI: {str(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
             return jsonify({
                 'success': False,
                 'error': 'Failed to generate roadmap',
-                'details': 'AI service unavailable'
+                'details': f'AI generation error: {str(e)}'
             }), 503
 
         # Start transaction-like operation (Supabase doesn't support transactions directly in the Python client)
@@ -273,12 +278,22 @@ def generate_roadmap():
                 'interest_title': career_interest,
                 'description': description
             }
-            interest_result = supabase.table('career_interests').insert(interest_data).execute()
+            logger.info(f"Creating career interest: {interest_data}")
+
+            try:
+                interest_result = supabase.table('career_interests').insert(interest_data).execute()
+                logger.info(f"Career interest result: {interest_result}")
+            except Exception as e:
+                logger.error(f"Error creating career interest: {str(e)}")
+                logger.error(f"Error type: {type(e)}")
+                logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No details'}")
+                raise
 
             if not interest_result.data:
-                raise Exception('Failed to create career interest')
+                raise Exception('Failed to create career interest - no data returned')
 
             interest_id = interest_result.data[0]['id']
+            logger.info(f"Created career interest with ID: {interest_id}")
 
             # 2. Create roadmap record
             roadmap_data = {
@@ -288,13 +303,23 @@ def generate_roadmap():
                 'total_weeks': len(roadmap_steps),
                 'ai_generated': genai_available
             }
-            roadmap_result = supabase.table('career_roadmaps').insert(roadmap_data).execute()
-            
+            logger.info(f"Creating roadmap: {roadmap_data}")
+
+            try:
+                roadmap_result = supabase.table('career_roadmaps').insert(roadmap_data).execute()
+                logger.info(f"Roadmap result: {roadmap_result}")
+            except Exception as e:
+                logger.error(f"Error creating roadmap: {str(e)}")
+                logger.error(f"Error type: {type(e)}")
+                logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No details'}")
+                raise
+
             if not roadmap_result.data:
-                raise Exception('Failed to create roadmap')
-            
+                raise Exception('Failed to create roadmap - no data returned')
+
             roadmap_id = roadmap_result.data[0]['id']
-            
+            logger.info(f"Created roadmap with ID: {roadmap_id}")
+
             # 3. Insert roadmap steps
             steps_to_insert = [{
                 'roadmap_id': roadmap_id,
@@ -302,17 +327,26 @@ def generate_roadmap():
                 'topic': step['topic'],
                 'description': step['description'],
                 'milestone': step['milestone'],
-                'resource_link': step.get('resource_link'),
                 'status': 'pending'
             } for step in roadmap_steps]
-            
-            steps_result = supabase.table('roadmap_steps').insert(steps_to_insert).execute()
-            
+
+            logger.info(f"Inserting {len(steps_to_insert)} roadmap steps")
+            logger.info(f"First step sample: {steps_to_insert[0] if steps_to_insert else 'No steps'}")
+
+            try:
+                steps_result = supabase.table('roadmap_steps').insert(steps_to_insert).execute()
+                logger.info(f"Steps result: {steps_result}")
+            except Exception as e:
+                logger.error(f"Error creating roadmap steps: {str(e)}")
+                logger.error(f"Error type: {type(e)}")
+                logger.error(f"Error details: {e.__dict__ if hasattr(e, '__dict__') else 'No details'}")
+                raise
+
             if not steps_result.data:
-                raise Exception('Failed to create roadmap steps')
-            
+                raise Exception('Failed to create roadmap steps - no data returned')
+
             logger.info(f"Successfully created roadmap {roadmap_id} with {len(steps_result.data)} steps")
-            
+
             return jsonify({
                 'success': True,
                 'roadmap_id': roadmap_id,
@@ -320,11 +354,14 @@ def generate_roadmap():
                 'total_weeks': len(roadmap_steps),
                 'message': 'Roadmap generated successfully'
             }), 201
-            
+
         except Exception as e:
             # Log the error and provide a user-friendly message
             logger.error(f"Database error in roadmap generation: {str(e)}")
-            
+            logger.error(f"Full exception: {repr(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+
             # Check if it's a foreign key violation
             error_msg = str(e).lower()
             if 'foreign key' in error_msg and 'violates' in error_msg:
@@ -333,11 +370,11 @@ def generate_roadmap():
                     'error': 'Invalid student reference',
                     'details': 'The provided student ID does not exist in our system.'
                 }), 400
-                
+
             return jsonify({
                 'success': False,
                 'error': 'Failed to generate roadmap',
-                'details': 'An error occurred while saving the roadmap. Please try again.'
+                'details': f'Database error: {str(e)}'
             }), 500
 
     except Exception as e:
@@ -447,8 +484,7 @@ def update_step_status():
 
         # Update the step
         update_data = {
-            'status': status,
-            'updated_at': datetime.now().isoformat()
+            'status': status
         }
 
         # If marking as completed, set completed_on timestamp
@@ -457,15 +493,27 @@ def update_step_status():
         elif status == 'pending':
             update_data['completed_on'] = None
 
-        result = supabase.table('roadmap_steps')\
-            .update(update_data)\
-            .eq('id', step_id)\
-            .execute()
+        logger.info(f"Updating step {step_id} with data: {update_data}")
+
+        try:
+            result = supabase.table('roadmap_steps')\
+                .update(update_data)\
+                .eq('id', step_id)\
+                .execute()
+
+            logger.info(f"Update result: {result}")
+        except Exception as e:
+            logger.error(f"Error executing update: {str(e)}")
+            logger.error(f"Error type: {type(e)}")
+            import traceback
+            logger.error(f"Traceback: {traceback.format_exc()}")
+            raise
 
         if not result.data:
+            logger.warning(f"No data returned for step {step_id}")
             return jsonify({'error': 'Step not found or update failed'}), 404
 
-        logger.info(f"Updated step {step_id} to status: {status}")
+        logger.info(f"Successfully updated step {step_id} to status: {status}")
 
         return jsonify({
             'success': True,
@@ -475,6 +523,8 @@ def update_step_status():
 
     except Exception as e:
         logger.error(f"Error updating step status: {e}")
+        import traceback
+        logger.error(f"Full traceback: {traceback.format_exc()}")
         return jsonify({'error': str(e)}), 500
 
 
