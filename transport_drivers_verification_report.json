@@ -1,0 +1,28 @@
+{
+  "timestamp": "2026-02-06T14:42:12.827690",
+  "steps": {
+    "database_schema": false,
+    "record_count": 0,
+    "backend_api": true,
+    "column_verification": false,
+    "frontend_integration": true
+  },
+  "sample_record": {
+    "assigned_bus": null,
+    "blood_group": null,
+    "created_at": "2026-01-22T08:57:05.085501+00:00",
+    "driver_id": "DRV-002",
+    "emergency_contact": null,
+    "experience_years": 0,
+    "full_name": "Jane Smith",
+    "id": "07392754-4f99-4c10-a05e-3586dbd99484",
+    "license_expiry": null,
+    "license_number": "DL-87654321",
+    "name": "Jane Smith",
+    "phone": "9876543211",
+    "shift": "Morning",
+    "status": "Active",
+    "updated_at": "2026-01-22T08:57:05.085501+00:00",
+    "working_hours": "8 hours"
+  }
+}

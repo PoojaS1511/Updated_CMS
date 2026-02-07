@@ -1,0 +1,68 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Transport API Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        button { padding: 10px 20px; margin: 10px; background: #007bff; color: white; border: none; cursor: pointer; }
+        button:hover { background: #0056b3; }
+        .result { margin-top: 20px; padding: 10px; background: #f8f9fa; border: 1px solid #dee2e6; }
+        .error { color: red; }
+        .success { color: green; }
+    </style>
+</head>
+<body>
+    <h1>Transport API Test</h1>
+    <button onclick="testDirectAPI()">Test Direct API (Backend)</button>
+    <button onclick="testProxyAPI()">Test Proxy API (Frontend)</button>
+    <button onclick="testWithAuth()">Test With Auth Headers</button>
+    
+    <div id="result" class="result"></div>
+
+    <script>
+        async function testDirectAPI() {
+            updateResult('Testing direct backend API...', 'info');
+            try {
+                const response = await fetch('http://localhost:5001/api/transport/students?page=1&limit=3');
+                const data = await response.json();
+                updateResult(`Direct API Success: ${JSON.stringify(data, null, 2)}`, 'success');
+            } catch (error) {
+                updateResult(`Direct API Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testProxyAPI() {
+            updateResult('Testing proxy API through frontend...', 'info');
+            try {
+                const response = await fetch('/api/transport/students?page=1&limit=3');
+                const data = await response.json();
+                updateResult(`Proxy API Success: ${JSON.stringify(data, null, 2)}`, 'success');
+            } catch (error) {
+                updateResult(`Proxy API Error: ${error.message}`, 'error');
+            }
+        }
+
+        async function testWithAuth() {
+            updateResult('Testing with authentication headers...', 'info');
+            try {
+                const response = await fetch('/api/transport/students?page=1&limit=3', {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'Authorization': 'Bearer test-token'
+                    }
+                });
+                const data = await response.json();
+                updateResult(`Auth Test Success: ${JSON.stringify(data, null, 2)}`, 'success');
+            } catch (error) {
+                updateResult(`Auth Test Error: ${error.message}`, 'error');
+            }
+        }
+
+        function updateResult(message, type) {
+            const resultDiv = document.getElementById('result');
+            resultDiv.innerHTML = `<div class="${type}">${message}</div>`;
+        }
+    </script>
+</body>
+</html>

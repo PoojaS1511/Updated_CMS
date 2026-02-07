@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Transport API Test</title>
+</head>
+<body>
+    <h1>Transport API Test</h1>
+    <button onclick="testTransportAPI()">Test Transport Students API</button>
+    <div id="result"></div>
+
+    <script>
+        async function testTransportAPI() {
+            try {
+                console.log('Testing transport API...');
+                const response = await fetch('/api/transport/students?page=1&limit=5');
+                const data = await response.json();
+                
+                console.log('API Response:', data);
+                
+                const resultDiv = document.getElementById('result');
+                resultDiv.innerHTML = `
+                    <h2>API Response:</h2>
+                    <pre>${JSON.stringify(data, null, 2)}</pre>
+                    <p>Success: ${data.success}</p>
+                    <p>Data count: ${data.data ? data.data.length : 0}</p>
+                    <p>Total: ${data.total || 'N/A'}</p>
+                `;
+            } catch (error) {
+                console.error('Error:', error);
+                document.getElementById('result').innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
